@@ -470,6 +470,30 @@ class ApiCase(unittest.TestCase):
         payload = self.api.post_ops({"ops": [{"op": "settings", "patch": {"max_chars": 999999}}]})
         self.assertEqual(payload["settings"]["max_chars"], 2000)
 
+    def test_each_hermes_home_reads_its_own_file(self) -> None:
+        """A second profile must never see the launch profile's notes.
+
+        The host binds ``?profile=`` into the request's home scope, which is what
+        ``get_hermes_home()`` reads. ``HERMES_HOME`` is the same seam's other source, so this
+        drives the real resolution without needing the host: write in A, read in B, read A again.
+        """
+        self.api.store.set_data_dir(None)
+        home_a = tempfile.mkdtemp(prefix="sticky-home-a-")
+        home_b = tempfile.mkdtemp(prefix="sticky-home-b-")
+        saved = os.environ.get("HERMES_HOME")
+        try:
+            os.environ["HERMES_HOME"] = home_a
+            self.api.post_ops({"ops": [{"op": "create", "name": "only-a"}]})
+            os.environ["HERMES_HOME"] = home_b
+            self.assertEqual(self.api.get_state()["notes"], [])
+            os.environ["HERMES_HOME"] = home_a
+            self.assertEqual([note["name"] for note in self.api.get_state()["notes"]], ["only-a"])
+        finally:
+            if saved is None:
+                os.environ.pop("HERMES_HOME", None)
+            else:
+                os.environ["HERMES_HOME"] = saved
+
     def test_the_router_mounts(self) -> None:
         paths = {route.path for route in self.api.router.routes}
         self.assertEqual(paths, {"/state", "/ops", "/arm"})

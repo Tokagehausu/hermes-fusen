@@ -5,8 +5,11 @@ by path from the plugin root.
 
 Everything the desktop can do is one batch of ops plus a state payload, so the
 optimistic paint in ``desktop/plugin.js`` and a slash command in the CLI land on
-the same code. ``profile`` is the same ``?profile=`` seam the built-in routers
-use, so a second profile's window reads its own store.
+the same code. The profile is not a parameter here: the host's
+``/api/plugins/<name>/`` dependency reads ``?profile=`` off the request and binds
+it into the home scope, so ``plugin_data_dir`` resolves to that profile's
+``plugin-data`` for the whole handler. The desktop half sends the value; nothing
+in this file needs to look at it.
 """
 
 from __future__ import annotations
@@ -70,13 +73,13 @@ def _payload(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/state")
-def get_state(session_id: Optional[str] = None, profile: Optional[str] = None):
+def get_state(session_id: Optional[str] = None):
     """Every note, the settings, the pending proposals, and this conversation's pins."""
     return _payload({"session_id": session_id or ""})
 
 
 @router.post("/ops")
-def post_ops(body: dict = Body(...), profile: Optional[str] = None):
+def post_ops(body: dict = Body(...)):
     """Apply a batch of changes atomically. Returns the new state.
 
     ``session_id`` only shapes the payload (``session_note_ids``); it is not
@@ -92,7 +95,7 @@ def post_ops(body: dict = Body(...), profile: Optional[str] = None):
 
 
 @router.post("/arm")
-def arm(body: dict = Body(...), profile: Optional[str] = None):
+def arm(body: dict = Body(...)):
     """Acknowledge a "new chat with this note" press (epoch ``since``).
 
     Nothing is written: the desktop opens the draft, then watches

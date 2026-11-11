@@ -189,6 +189,25 @@ let lastWrite = 0
 const noteById = (data, id) => data.notes.find(note => note.id === id) || null
 const notesOnSession = (data, sid) => (sid ? data.notes.filter(note => note.sessions.includes(sid)) : [])
 
+// One backend serves every profile, so a request that omits `?profile=` is answered
+// from the launch profile's plugin-data — another profile's window would paint and
+// overwrite someone else's notes. The host binds that query value into the request's
+// home scope, so sending it is the whole fix.
+function apiQuery(extra) {
+  const params = new URLSearchParams()
+  const profile = host.state.profile.get()
+  if (profile) {
+    params.set('profile', profile)
+  }
+  for (const [key, value] of Object.entries(extra || {})) {
+    if (value) {
+      params.set(key, String(value))
+    }
+  }
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
 function apply(payload) {
   if (!payload || !Array.isArray(payload.notes)) {
     return
@@ -213,7 +232,7 @@ async function load() {
   }
   try {
     const sid = focusedSession()
-    apply(await restCtx.rest(`/state${sid ? `?session_id=${encodeURIComponent(sid)}` : ''}`))
+    apply(await restCtx.rest(`/state${apiQuery({ session_id: sid })}`))
     void resolveTitles()
   } catch (err) {
     $status.set({ ...$status.get(), error: String(err?.message || err), loaded: true })
@@ -259,7 +278,7 @@ function commit(ops, { optimistic } = {}) {
   queue = queue.then(async () => {
     try {
       const sid = focusedSession()
-      const payload = await restCtx.rest('/ops', {
+      const payload = await restCtx.rest(`/ops${apiQuery()}`, {
         body: { ops, session_id: sid || undefined },
         method: 'POST'
       })
@@ -313,7 +332,7 @@ function armNewChat(noteId) {
   const since = Date.now() / 1000
   claim = { noteId, since, startFocus: focusedSession(), candidates: new Set() }
   restCtx
-    .rest('/arm', { body: { note_id: noteId, since }, method: 'POST' })
+    .rest(`/arm${apiQuery()}`, { body: { note_id: noteId, since }, method: 'POST' })
     .then(() => host.newChat())
     .catch(err => {
       claim = null
@@ -1316,6 +1335,7 @@ export default {
     ctx.onDispose($data.subscribe(syncPalette))
     ctx.onDispose(() => paletteOff())
 
+    ctx.onDispose(host.state.profile.listen(() => void load()))
     ctx.onDispose(host.state.focusedStoredSessionId.subscribe(sid => {
       noteFocus(sid)
       void load()
