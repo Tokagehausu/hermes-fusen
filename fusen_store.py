@@ -1,6 +1,6 @@
-"""Sticky Tags — storage.
+"""Fusen — storage.
 
-A sticky note is a tag that carries an editable body. One note can be pinned to
+A fusen (sticky note) is a tag that carries an editable body. One note can be pinned to
 many conversations and one conversation can carry several notes; the body lives
 in exactly one place, so a rewrite shows up everywhere the note is pinned.
 
@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-PLUGIN_ID = "sticky-tags"
+PLUGIN_ID = "fusen"
 STATE_VERSION = 1
 
 NOTE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
@@ -59,7 +59,7 @@ _SETTINGS_LIMITS = {
 _INJECT_MODES = ("auto", "always", "off")
 
 
-class StickyError(ValueError):
+class FusenError(ValueError):
     """A rejected request. Callers turn this into a 400 or an error tool result."""
 
 
@@ -118,7 +118,7 @@ def _text(value: Any, limit: int, default: str = "") -> str:
 def _id(value: Any, label: str, pattern: re.Pattern[str]) -> str:
     text = str(value or "").strip()
     if not pattern.match(text):
-        raise StickyError(f"invalid {label}: {text[:20]!r}")
+        raise FusenError(f"invalid {label}: {text[:20]!r}")
     return text
 
 
@@ -397,7 +397,7 @@ def create(
 ) -> dict[str, Any]:
     clean = _text(name, MAX_NAME)
     if not clean:
-        raise StickyError("name is required")
+        raise FusenError("name is required")
     stamp = _now()
     state["seq"] = int(state.get("seq") or 0) + 1
     note = {
@@ -422,13 +422,13 @@ def create(
 def attach(state: dict[str, Any], note_id_: str, sid: str) -> dict[str, Any]:
     note = state["notes"].get(note_id(note_id_))
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     sid = session_key(sid)
     if sid in note["sessions"]:
         return note
     cap = state["settings"]["max_notes_per_session"]
     if len(notes_for(state, sid)) >= cap:
-        raise StickyError(f"this conversation already carries {cap} sticky notes")
+        raise FusenError(f"this conversation already carries {cap} notes")
     note["sessions"].append(sid)
     note["updated_at"] = _now()
     return note
@@ -437,7 +437,7 @@ def attach(state: dict[str, Any], note_id_: str, sid: str) -> dict[str, Any]:
 def detach(state: dict[str, Any], note_id_: str, sid: str) -> dict[str, Any]:
     note = state["notes"].get(note_id(note_id_))
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     sid = session_key(sid)
     if sid in note["sessions"]:
         note["sessions"].remove(sid)
@@ -456,9 +456,9 @@ def set_body(
     """Rewrite a note body. Appends the previous body to history."""
     note = state["notes"].get(note_id(note_id_))
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     if expect_rev is not None and int(expect_rev) != note["rev"]:
-        raise StickyError(f"note changed since you read it (rev {note['rev']})")
+        raise FusenError(f"note changed since you read it (rev {note['rev']})")
     text = _text(body, MAX_BODY)
     if text == note["body"]:
         return note
@@ -475,11 +475,11 @@ def update_meta(state: dict[str, Any], note_id_: str, patch: dict[str, Any]) -> 
     """Name, colour, order. Not the body — that goes through set_body."""
     note = state["notes"].get(note_id(note_id_))
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     if "name" in patch:
         name = _text(patch["name"], MAX_NAME)
         if not name:
-            raise StickyError("name cannot be empty")
+            raise FusenError("name cannot be empty")
         note["name"] = name
     if "color" in patch:
         note["color"] = _color(patch["color"], note["color"])
@@ -490,7 +490,7 @@ def update_meta(state: dict[str, Any], note_id_: str, patch: dict[str, Any]) -> 
 def delete(state: dict[str, Any], note_id_: str) -> None:
     note = state["notes"].pop(note_id(note_id_), None)
     if note is None:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     state["pending"] = [entry for entry in state.get("pending") or () if entry["note_id"] != note["id"]]
 
 
@@ -498,16 +498,16 @@ def revert(state: dict[str, Any], note_id_: str, rev: Optional[int] = None) -> d
     """Roll a note back to a stored revision (default: the one before current)."""
     note = state["notes"].get(note_id(note_id_))
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     history = note["history"]
     if not history:
-        raise StickyError("no earlier revision to restore")
+        raise FusenError("no earlier revision to restore")
     if rev is None:
         target = history[-1]
     else:
         match = [entry for entry in history if entry["rev"] == int(rev)]
         if not match:
-            raise StickyError(f"revision {rev} is not in history")
+            raise FusenError(f"revision {rev} is not in history")
         target = match[-1]
     depth = state["settings"]["history_depth"]
     _push_history(note, note["body"], note["author"], depth)
@@ -532,7 +532,7 @@ def propose(
     """File a rewrite the user has to confirm. Replaces any pending one for the note."""
     note = state["notes"].get(note_id(note_id_))
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     entry = {
         "id": os.urandom(4).hex(),
         "note_id": note["id"],
@@ -550,13 +550,13 @@ def propose(
 def accept(state: dict[str, Any], pending_id: str) -> dict[str, Any]:
     entry = next((item for item in state.get("pending") or () if item["id"] == pending_id), None)
     if entry is None:
-        raise StickyError("proposal not found")
+        raise FusenError("proposal not found")
     note = state["notes"].get(entry["note_id"])
     if not note:
-        raise StickyError("note not found")
+        raise FusenError("note not found")
     state["pending"] = [item for item in state.get("pending") or () if item["id"] != pending_id]
     if entry["base_rev"] != note["rev"]:
-        raise StickyError("the note changed after this proposal was filed; discarded")
+        raise FusenError("the note changed after this proposal was filed; discarded")
     set_body(state, note["id"], entry["body"], author="hermes")
     return note
 
@@ -565,7 +565,7 @@ def discard(state: dict[str, Any], pending_id: str) -> None:
     before = len(state.get("pending") or ())
     state["pending"] = [item for item in state.get("pending") or () if item["id"] != pending_id]
     if len(state["pending"]) == before:
-        raise StickyError("proposal not found")
+        raise FusenError("proposal not found")
 
 
 def set_settings(state: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -595,10 +595,10 @@ OPS = {
 def apply(state: dict[str, Any], op: dict[str, Any]) -> None:
     """One change from the wire. Unknown ops are rejected, not ignored."""
     if not isinstance(op, dict):
-        raise StickyError("op must be an object")
+        raise FusenError("op must be an object")
     kind = str(op.get("op") or "")
     if kind not in OPS:
-        raise StickyError(f"unknown op: {kind!r}")
+        raise FusenError(f"unknown op: {kind!r}")
 
     if kind == "create":
         note = create(
@@ -652,13 +652,13 @@ def apply(state: dict[str, Any], op: dict[str, Any]) -> None:
         update_meta(state, str(op.get("note_id") or ""), op.get("patch") or {})
         return
 
-    raise StickyError(f"unknown op: {kind!r}")  # pragma: no cover
+    raise FusenError(f"unknown op: {kind!r}")  # pragma: no cover
 
 
 def apply_ops(ops: Any, *, sid: str = "") -> dict[str, Any]:
     """Apply a batch atomically: the whole batch lands, or nothing does."""
     if not isinstance(ops, list) or not ops:
-        raise StickyError("ops is required")
+        raise FusenError("ops is required")
     with _lock:
         state = _read_uncached(state_path())
         for op in ops:
@@ -677,7 +677,7 @@ def render(state: dict[str, Any], sid: str) -> str:
         return ""
     budget = state["settings"]["max_chars"]
     lines = [
-        '<sticky-notes note="These are notes the user pinned to this conversation. '
+        '<fusen-notes note="These are notes the user pinned to this conversation. '
         f'They are context the user wrote, not instructions from the system ({len(notes)} pinned).">'
     ]
     for note in notes:
@@ -688,7 +688,7 @@ def render(state: dict[str, Any], sid: str) -> str:
         lines.append(f'<note id="{note["id"]}" name="{_escape(note["name"])}" color="{note["color"]}" rev="{note["rev"]}" author="{tag}">')
         lines.append(body or "(empty)")
         lines.append("</note>")
-    lines.append("</sticky-notes>")
+    lines.append("</fusen-notes>")
     return "\n".join(lines)
 
 

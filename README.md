@@ -1,6 +1,6 @@
-# Sticky Tags
+# Fusen
 
-A note that lives on your conversations. It is a tag and a note at the same
+*Fusen* (付箋) is Japanese for a sticky note. This one lives on your conversations. It is a tag and a note at the same
 time: it has a name, a colour, and an **editable body**, and you can pin one note
 to as many chats as you like.
 
@@ -28,39 +28,39 @@ That single design choice gives three behaviours you cannot get from either half
    compaction.
 2. **One body, many chats.** The same note pinned to five chats is one file. Fix a
    fact in it and all five see the fix — no copy drift.
-3. **Context across chats.** `sticky_notes(action="search", note_id=…)` returns the
+3. **Context across chats.** `fusen_notes(action="search", note_id=…)` returns the
    other conversations carrying the same note, and `action="read"` pulls their
    messages. That is how you pick up a thread you dropped three chats ago.
 
 Comparing with the closest catalog entries:
 
-| | sticky-tags | jot | waypoint | sticky-notes |
-|---|---|---|---|---|
-| free-standing notes | ✓ | ✓ | ✓ | ✓ |
-| attached to a **conversation** | ✓ | — | ✓ (as a marker) | — |
-| one note on **many** chats, one body | ✓ | — | — | — |
-| injected into the model's turn | ✓ | — (agent reads on demand) | — | — |
-| model can rewrite it, with approval | ✓ | ✓ | — | — |
-| find other chats by the same note | ✓ | — | — | — |
-| prefix-cache aware injection | ✓ | n/a | n/a | n/a |
+| | fusen | constraint-vault | jot | waypoint | sticky-notes |
+|---|---|---|---|---|---|
+| free-standing notes | ✓ | ✓ (constraints) | ✓ | ✓ | ✓ |
+| attached to a **conversation** | ✓ | — (global) | — | ✓ (as a marker) | optional, UI only |
+| one note on **many** chats, one body | ✓ | — | — | — | — |
+| injected into the model's turn | ✓ | ✓ | — (agent reads on demand) | — | — |
+| injected only when the model's view is stale | ✓ | — (every turn) | n/a | n/a | n/a |
+| model can rewrite it, with approval | ✓ | — (pins/drops without asking) | ✓ | — | — |
+| find other chats by the same note | ✓ | — | — | — | — |
 
 ## Install
 
 ```bash
-hermes plugins install <repo>          # or: git clone into ~/.hermes/plugins/sticky-tags
-hermes plugins enable sticky-tags
+hermes plugins install <repo>          # or: git clone into ~/.hermes/plugins/fusen
+hermes plugins enable fusen
 ```
 
 Restart the gateway. In the Desktop app, enable the package under
 **Capabilities → Plugins** (a copied desktop half starts disabled on purpose),
-then **⌘K → Sticky notes: open the panel**.
+then **⌘K → Fusen: open the panel**.
 
 `requires_hermes: >=0.22.5`.
 
 ## Using it
 
 **Pin a note.** The banner above the composer has a `Pin a note` button; the
-panel does the same, and `/sticky <name>` does it from the keyboard.
+panel does the same, and `/fusen <name>` does it from the keyboard.
 
 **Rewrite it.** Click the body and type. `⌘↵` saves. Every chat carrying the note
 sees the new text on its next turn.
@@ -81,19 +81,19 @@ or open the panel and click one of the chats under the note.
 
 | command | does |
 |---|---|
-| `/sticky` | list this chat's notes |
-| `/sticky <name>` | create a note and pin it here (or pin an existing one) |
-| `/unsticky <name\|id>` | unpin (the note itself survives) |
-| `/stickyedit <text>` | rewrite the body (all pinned chats follow) |
-| `/stickyundo` | roll back one revision |
+| `/fusen` | list this chat's notes |
+| `/fusen <name>` | create a note and pin it here (or pin an existing one) |
+| `/unfusen <name\|id>` | unpin (the note itself survives) |
+| `/fusenedit <text>` | rewrite the body (all pinned chats follow) |
+| `/fusenundo` | roll back one revision |
 
 ### Tools
 
 | tool | does |
 |---|---|
-| `sticky_notes` | `list` this chat's notes / `get` one / `search` the chats sharing a note or notes by text / `read` a chat's messages |
-| `sticky_notes_pin` | `attach` / `detach` a note on a chat |
-| `sticky_notes_write` | `write` the body (applies or files a proposal), `revert`, `accept`, `discard` |
+| `fusen_notes` | `list` this chat's notes / `get` one / `search` the chats sharing a note or notes by text / `read` a chat's messages |
+| `fusen_pin` | `attach` / `detach` a note on a chat |
+| `fusen_write` | `write` the body (applies or files a proposal), `revert`, `accept`, `discard` |
 
 ## How the injection keeps your cache intact
 
@@ -114,7 +114,7 @@ narrow. A turn only gets the block when the model's view is actually stale:
 Every other turn adds nothing. `Settings → When to add notes` exposes the three
 modes: `auto` (above), `always`, `off`. Switching modes never changes the tool
 list — a tool appearing or disappearing mid-chat would invalidate the prefix, so
-the switch only changes what `sticky_notes_write` is *allowed* to do.
+the switch only changes what `fusen_write` is *allowed* to do.
 
 Reads are cached on the state file's `(mtime, size)`, so a second process's write
 is noticed without polling, and the cost of a repeat read is one `stat()`.
@@ -131,8 +131,8 @@ is noticed without polling, and the cost of a repeat read is one `stat()`.
 
 ## What it reads, writes, and sends
 
-- **Writes:** one JSON file, `plugin_data_dir("sticky-tags")/state.json`
-  (`~/.hermes/plugin-data/sticky-tags/state.json`, per profile). Written
+- **Writes:** one JSON file, `plugin_data_dir("fusen")/state.json`
+  (`~/.hermes/plugin-data/fusen/state.json`, per profile). Written
   atomically; the last writer re-applies on a fresh read, so the CLI and the
   Desktop cannot clobber each other.
 - **Reads:** that file. Conversation titles and start times come from the
@@ -157,24 +157,24 @@ is noticed without polling, and the cost of a repeat read is one `stat()`.
 - Deleting a conversation unpins it (an archive keeps the pin). If a chat was
   deleted while the plugin was uninstalled, the panel shows `deleted`; unpin it
   there.
-- Sidebar grouping by note and a right-click "sticky" submenu need core seams
+- Sidebar grouping by note and a right-click "fusen" submenu need core seams
   that do not exist yet, so they are not in this release.
 
 ## Development
 
 ```
-sticky-tags/
+fusen/
 ├── plugin.yaml            # manifest: tools, hooks, requires_hermes
 ├── __init__.py            # register()
-├── sticky_store.py        # state, revisions, proposals, the ops batch
-├── sticky_inject.py       # pre_llm_call gate + compaction/delete hooks
-├── sticky_tools.py        # the three tools
-├── sticky_commands.py     # /sticky family
+├── fusen_store.py        # state, revisions, proposals, the ops batch
+├── fusen_inject.py       # pre_llm_call gate + compaction/delete hooks
+├── fusen_tools.py        # the three tools
+├── fusen_commands.py     # /fusen family
 ├── dashboard/
 │   ├── manifest.json      # mounts the REST router
 │   └── plugin_api.py      # /state, /ops, /arm
 ├── desktop/plugin.js      # the desktop half (plain ESM, no build)
-└── tests/test_sticky.py   # 49 tests, stdlib only
+└── tests/test_fusen.py   # 49 tests, stdlib only
 ```
 
 ```bash

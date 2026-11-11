@@ -1,4 +1,4 @@
-"""Sticky Tags — the desktop's routes, mounted at ``/api/plugins/sticky-tags/``.
+"""Fusen — the desktop's routes, mounted at ``/api/plugins/fusen/``.
 
 The dashboard imports this file on its own (no package), so ``store`` is loaded
 by path from the plugin root.
@@ -26,9 +26,9 @@ router = APIRouter()
 
 
 def _load_store():
-    name = "hermes_sticky_tags_store"
+    name = "hermes_fusen_store"
     if name not in sys.modules:
-        path = Path(__file__).resolve().parent.parent / "sticky_store.py"
+        path = Path(__file__).resolve().parent.parent / "fusen_store.py"
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
@@ -44,12 +44,12 @@ store = _load_store()
 
 
 def _announce(payload: dict[str, Any], sid: str = "") -> dict[str, Any]:
-    """Tell every open window the state moved (event: plugin.sticky-tags.notes.changed)."""
+    """Tell every open window the state moved (event: plugin.fusen.notes.changed)."""
     try:
         from hermes_cli.plugin_events import broadcast_plugin_event
 
         broadcast_plugin_event(
-            "sticky-tags",
+            "fusen",
             "notes.changed",
             {"updated_at": payload.get("updated_at") or 0, "session_id": sid},
         )
@@ -58,7 +58,7 @@ def _announce(payload: dict[str, Any], sid: str = "") -> dict[str, Any]:
         # turn a write that already succeeded into a 500.
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
-        logging.getLogger(__name__).debug("sticky-tags broadcast skipped: %s", exc)
+        logging.getLogger(__name__).debug("fusen broadcast skipped: %s", exc)
     return payload
 
 
@@ -67,7 +67,7 @@ def _payload(body: dict[str, Any]) -> dict[str, Any]:
     if sid:
         try:
             sid = store.session_key(sid)
-        except store.StickyError as exc:
+        except store.FusenError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     return store.payload(store.load(), sid=sid)
 
@@ -89,7 +89,7 @@ def post_ops(body: dict = Body(...)):
     sid = str(body.get("session_id") or "")
     try:
         state = store.apply_ops(ops, sid=store.session_key(sid) if sid else "")
-    except store.StickyError as exc:
+    except store.FusenError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _announce(state, sid)
 
@@ -106,7 +106,7 @@ def arm(body: dict = Body(...)):
     try:
         note_id = store.note_id(body.get("note_id"))
         since = float(body.get("since") or 0)
-    except store.StickyError as exc:
+    except store.FusenError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if since <= 0:
         raise HTTPException(status_code=400, detail="since is required")

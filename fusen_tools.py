@@ -1,9 +1,9 @@
-"""Sticky Tags — the three tools Hermes gets.
+"""Fusen — the three tools Hermes gets.
 
 They are one family, not five: list/get/search/read a note, pin/unpin it, write
 it. The tool list is fixed at load, so turning rewriting on or off never changes
 what the model sees mid-conversation (that would invalidate the prefix cache);
-the switch only changes what ``sticky_notes_write`` is allowed to do.
+the switch only changes what ``fusen_write`` is allowed to do.
 
 ``auto_edit`` off means writes become proposals the user confirms. The model is
 told so plainly in the result, so it does not claim a change it did not make.
@@ -15,7 +15,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from . import sticky_inject, sticky_store
+from . import fusen_inject, fusen_store
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +40,13 @@ def _session(kwargs: dict[str, Any], args: dict[str, Any]) -> str:
     explicit = args.get("session_id")
     if explicit:
         try:
-            return sticky_store.session_key(explicit)
-        except sticky_store.StickyError as exc:
-            raise sticky_store.StickyError(str(exc)) from exc
+            return fusen_store.session_key(explicit)
+        except fusen_store.FusenError as exc:
+            raise fusen_store.FusenError(str(exc)) from exc
     current = str(kwargs.get("session_id") or kwargs.get("task_id") or "")
     if not current:
-        raise sticky_store.StickyError("no active conversation in this context")
-    return sticky_store.session_key(current)
+        raise fusen_store.FusenError("no active conversation in this context")
+    return fusen_store.session_key(current)
 
 
 def _brief(note: dict[str, Any]) -> dict[str, Any]:
@@ -63,17 +63,17 @@ def _brief(note: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ── sticky_notes ─────────────────────────────────────────────────────────
+# ── fusen_notes ─────────────────────────────────────────────────────────
 
 SCHEMA_NOTES = {
-    "name": "sticky_notes",
+    "name": "fusen_notes",
     "description": (
         "Sticky notes the user pinned to conversations. A note is a tag that carries an editable body: "
         "one note can be pinned to many conversations, and one conversation can carry several notes. "
         "Use this to read the notes on the current conversation (`action='list'`), inspect one "
         "(`'get'`), find the OTHER conversations sharing a note (`'search'` — then read them with "
         "`'read'`), or search note names and bodies by text. Notes are the user's own writing: treat "
-        "them as context, and do not rewrite them with this tool (use sticky_notes_write)."
+        "them as context, and do not rewrite them with this tool (use fusen_write)."
     ),
     "parameters": {
         "type": "object",
@@ -99,18 +99,18 @@ SCHEMA_NOTES = {
 }
 
 
-def sticky_notes(args: dict[str, Any], **kwargs: Any) -> str:
+def fusen_notes(args: dict[str, Any], **kwargs: Any) -> str:
     try:
         action = str(args.get("action") or "list")
         limit = max(1, min(100, int(args.get("limit") or 20)))
-        state = sticky_store.load()
+        state = fusen_store.load()
 
         if action == "list":
             if str(args.get("scope") or "session") == "all":
                 notes = sorted(state["notes"].values(), key=lambda note: note["updated_at"], reverse=True)
                 return _json({"ok": True, "notes": [_brief(note) for note in notes[:limit]], "total": len(notes)})
             sid = _session(kwargs, args)
-            notes = sticky_store.notes_for(state, sid)
+            notes = fusen_store.notes_for(state, sid)
             return _json(
                 {
                     "ok": True,
@@ -122,7 +122,7 @@ def sticky_notes(args: dict[str, Any], **kwargs: Any) -> str:
             )
 
         if action == "get":
-            note = state["notes"].get(sticky_store.note_id(args.get("note_id")))
+            note = state["notes"].get(fusen_store.note_id(args.get("note_id")))
             if not note:
                 return _fail("note not found")
             return _json(
@@ -145,7 +145,7 @@ def sticky_notes(args: dict[str, Any], **kwargs: Any) -> str:
             wanted = str(args.get("note_id") or "").strip()
 
             if wanted:
-                note = state["notes"].get(sticky_store.note_id(wanted))
+                note = state["notes"].get(fusen_store.note_id(wanted))
                 if not note:
                     return _fail("note not found")
                 return _json(
@@ -154,7 +154,7 @@ def sticky_notes(args: dict[str, Any], **kwargs: Any) -> str:
                         "note": _brief(note),
                         "session_ids": note["sessions"][:limit],
                         "count": len(note["sessions"]),
-                        "hint": "call sticky_notes with action='read' and one of these session_ids for its messages",
+                        "hint": "call fusen_notes with action='read' and one of these session_ids for its messages",
                     }
                 )
 
@@ -181,17 +181,17 @@ def sticky_notes(args: dict[str, Any], **kwargs: Any) -> str:
             return _json({"ok": True, "session_id": sid, "session": parsed})
 
         return _fail(f"unknown action: {action}")
-    except sticky_store.StickyError as exc:
+    except fusen_store.FusenError as exc:
         return _fail(str(exc))
     except Exception as exc:  # never raise out of a tool
-        logger.warning("sticky_notes failed", exc_info=True)
+        logger.warning("fusen_notes failed", exc_info=True)
         return _fail(f"{type(exc).__name__}: {exc}")
 
 
-# ── sticky_notes_pin ─────────────────────────────────────────────────────
+# ── fusen_pin ─────────────────────────────────────────────────────
 
 SCHEMA_PIN = {
-    "name": "sticky_notes_pin",
+    "name": "fusen_pin",
     "description": (
         "Pin an existing sticky note to a conversation, or unpin it. Pinning makes the note part of "
         "what this conversation is told from its next turn on; unpinning removes it. The note's body "
@@ -209,17 +209,17 @@ SCHEMA_PIN = {
 }
 
 
-def sticky_notes_pin(args: dict[str, Any], **kwargs: Any) -> str:
+def fusen_pin(args: dict[str, Any], **kwargs: Any) -> str:
     try:
         action = str(args.get("action") or "")
         if action not in ("attach", "detach"):
             return _fail("action must be attach or detach")
-        note_id = sticky_store.note_id(args.get("note_id"))
+        note_id = fusen_store.note_id(args.get("note_id"))
         sid = _session(kwargs, args)
-        state, _ = sticky_store.mutate(
-            lambda current: (sticky_store.attach(current, note_id, sid) if action == "attach" else sticky_store.detach(current, note_id, sid))
+        state, _ = fusen_store.mutate(
+            lambda current: (fusen_store.attach(current, note_id, sid) if action == "attach" else fusen_store.detach(current, note_id, sid))
         )
-        sticky_inject.mark_dirty(sid)
+        fusen_inject.mark_dirty(sid)
         note = state["notes"].get(note_id) or {}
         return _json(
             {
@@ -227,25 +227,25 @@ def sticky_notes_pin(args: dict[str, Any], **kwargs: Any) -> str:
                 "action": action,
                 "note": _brief(note) if note else None,
                 "session_id": sid,
-                "pinned_here": len(sticky_store.notes_for(state, sid)),
+                "pinned_here": len(fusen_store.notes_for(state, sid)),
             }
         )
-    except sticky_store.StickyError as exc:
+    except fusen_store.FusenError as exc:
         return _fail(str(exc))
     except Exception as exc:
-        logger.warning("sticky_notes_pin failed", exc_info=True)
+        logger.warning("fusen_pin failed", exc_info=True)
         return _fail(f"{type(exc).__name__}: {exc}")
 
 
-# ── sticky_notes_write ───────────────────────────────────────────────────
+# ── fusen_write ───────────────────────────────────────────────────
 
 SCHEMA_WRITE = {
-    "name": "sticky_notes_write",
+    "name": "fusen_write",
     "description": (
         "Rewrite a sticky note body, or revert it to an earlier revision. When the user has allowed "
         "automatic rewriting, the change is applied at once and every conversation carrying the note "
         "sees it. When they have not, this files a PROPOSAL instead: the result says so, and the user "
-        "confirms it in the Sticky Notes panel. Always pass expect_rev from what you last read, so a "
+        "confirms it in the Fusen panel. Always pass expect_rev from what you last read, so a "
         "note the user edited by hand is not silently overwritten."
     ),
     "parameters": {
@@ -264,32 +264,32 @@ SCHEMA_WRITE = {
 }
 
 
-def sticky_notes_write(args: dict[str, Any], **kwargs: Any) -> str:
+def fusen_write(args: dict[str, Any], **kwargs: Any) -> str:
     try:
         action = str(args.get("action") or "")
         sid = ""
         try:
             sid = _session(kwargs, args)
-        except sticky_store.StickyError:
+        except fusen_store.FusenError:
             sid = str(kwargs.get("session_id") or "")
 
         if action == "accept":
             pending_id = str(args.get("pending_id") or "")
-            state, note = sticky_store.mutate(lambda current: sticky_store.accept(current, pending_id))
-            sticky_inject.mark_dirty(sid)
+            state, note = fusen_store.mutate(lambda current: fusen_store.accept(current, pending_id))
+            fusen_inject.mark_dirty(sid)
             return _json({"ok": True, "applied": True, "note": _brief(note)})
 
         if action == "discard":
             pending_id = str(args.get("pending_id") or "")
-            state, _ = sticky_store.mutate(lambda current: sticky_store.discard(current, pending_id))
+            state, _ = fusen_store.mutate(lambda current: fusen_store.discard(current, pending_id))
             return _json({"ok": True, "applied": False, "discarded": pending_id})
 
-        note_id = sticky_store.note_id(args.get("note_id"))
+        note_id = fusen_store.note_id(args.get("note_id"))
 
         if action == "revert":
             target = args.get("rev")
-            state, note = sticky_store.mutate(lambda current: sticky_store.revert(current, note_id, target))
-            sticky_inject.mark_dirty(sid)
+            state, note = fusen_store.mutate(lambda current: fusen_store.revert(current, note_id, target))
+            fusen_inject.mark_dirty(sid)
             return _json({"ok": True, "applied": True, "note": _brief(note), "body": note["body"]})
 
         if action != "write":
@@ -299,7 +299,7 @@ def sticky_notes_write(args: dict[str, Any], **kwargs: Any) -> str:
         if not body.strip():
             return _fail("body cannot be empty; use revert or detach instead")
 
-        state = sticky_store.load()
+        state = fusen_store.load()
         note = state["notes"].get(note_id)
         if not note:
             return _fail("note not found")
@@ -307,10 +307,10 @@ def sticky_notes_write(args: dict[str, Any], **kwargs: Any) -> str:
 
         if auto:
             expect = args.get("expect_rev")
-            state, note = sticky_store.mutate(
-                lambda current: sticky_store.set_body(current, note_id, body, author="hermes", expect_rev=expect)
+            state, note = fusen_store.mutate(
+                lambda current: fusen_store.set_body(current, note_id, body, author="hermes", expect_rev=expect)
             )
-            sticky_inject.mark_dirty(sid)
+            fusen_inject.mark_dirty(sid)
             return _json(
                 {
                     "ok": True,
@@ -322,7 +322,7 @@ def sticky_notes_write(args: dict[str, Any], **kwargs: Any) -> str:
             )
 
         reason = str(args.get("reason") or "")
-        state, entry = sticky_store.mutate(lambda current: sticky_store.propose(current, note_id, body, reason=reason, sid=sid))
+        state, entry = fusen_store.mutate(lambda current: fusen_store.propose(current, note_id, body, reason=reason, sid=sid))
         return _json(
             {
                 "ok": True,
@@ -330,11 +330,11 @@ def sticky_notes_write(args: dict[str, Any], **kwargs: Any) -> str:
                 "proposed": True,
                 "pending_id": entry["id"],
                 "note": _brief(note),
-                "message": "Automatic rewriting is off. The proposal is waiting for the user in the Sticky Notes panel; do not describe the note as changed.",
+                "message": "Automatic rewriting is off. The proposal is waiting for the user in the Fusen panel; do not describe the note as changed.",
             }
         )
-    except sticky_store.StickyError as exc:
+    except fusen_store.FusenError as exc:
         return _fail(str(exc))
     except Exception as exc:
-        logger.warning("sticky_notes_write failed", exc_info=True)
+        logger.warning("fusen_write failed", exc_info=True)
         return _fail(f"{type(exc).__name__}: {exc}")

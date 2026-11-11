@@ -1,7 +1,7 @@
-"""Tests for the sticky-tags plugin. Stdlib only: ``python -m unittest discover -s tests``.
+"""Tests for the fusen plugin. Stdlib only: ``python -m unittest discover -s tests``.
 
 The plugin lives in a directory whose name is not a Python identifier, so it is
-loaded as ``sticky_tags`` from its directory — the same way Hermes imports it.
+loaded as ``fusen`` from its directory — the same way Hermes imports it.
 """
 
 from __future__ import annotations
@@ -16,17 +16,17 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-if "sticky_tags" not in sys.modules:
+if "fusen" not in sys.modules:
     _spec = importlib.util.spec_from_file_location(
-        "sticky_tags", ROOT / "__init__.py", submodule_search_locations=[str(ROOT)]
+        "fusen", ROOT / "__init__.py", submodule_search_locations=[str(ROOT)]
     )
     _module = importlib.util.module_from_spec(_spec)
-    sys.modules["sticky_tags"] = _module
+    sys.modules["fusen"] = _module
     _spec.loader.exec_module(_module)
 
-from sticky_tags import sticky_commands, sticky_inject, sticky_store, sticky_tools  # noqa: E402
+from fusen import fusen_commands, fusen_inject, fusen_store, fusen_tools  # noqa: E402
 
-commands, inject, store, tools = sticky_commands, sticky_inject, sticky_store, sticky_tools
+commands, inject, store, tools = fusen_commands, fusen_inject, fusen_store, fusen_tools
 
 SID_A = "20261105_113540_68ca42"
 SID_B = "20261104_090000_aaa111"
@@ -34,76 +34,76 @@ SID_B = "20261104_090000_aaa111"
 
 class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.mkdtemp(prefix="sticky-tags-test-")
-        sticky_store.set_data_dir(self.tmp)
-        sticky_store.invalidate()
-        sticky_inject._sent.clear()
-        sticky_inject._dirty.clear()
-        sticky_inject._carries.clear()
+        self.tmp = tempfile.mkdtemp(prefix="fusen-test-")
+        fusen_store.set_data_dir(self.tmp)
+        fusen_store.invalidate()
+        fusen_inject._sent.clear()
+        fusen_inject._dirty.clear()
+        fusen_inject._carries.clear()
 
     def tearDown(self) -> None:
-        sticky_store.set_data_dir(None)
-        sticky_store.invalidate()
+        fusen_store.set_data_dir(None)
+        fusen_store.invalidate()
 
     # ── shape ────────────────────────────────────────────────────────────
 
     def test_empty_state_has_defaults(self) -> None:
-        state = sticky_store.load()
+        state = fusen_store.load()
         self.assertEqual(state["notes"], {})
         self.assertTrue(state["settings"]["auto_edit"])
         self.assertEqual(state["settings"]["inject"], "auto")
         self.assertEqual(state["settings"]["max_notes_per_session"], 5)
 
     def test_create_pins_and_renders(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="決済まわり", body="ここまで調査", pin_to=SID_A)
-        sticky_store.write(state)
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="決済まわり", body="ここまで調査", pin_to=SID_A)
+        fusen_store.write(state)
 
         self.assertTrue(note["id"].startswith("n"))
-        state = sticky_store.load()
-        self.assertEqual(len(sticky_store.notes_for(state, SID_A)), 1)
-        text = sticky_store.render(state, SID_A)
-        self.assertIn("<sticky-notes", text)
+        state = fusen_store.load()
+        self.assertEqual(len(fusen_store.notes_for(state, SID_A)), 1)
+        text = fusen_store.render(state, SID_A)
+        self.assertIn("<fusen-notes", text)
         self.assertIn("決済まわり", text)
         self.assertIn("ここまで調査", text)
-        self.assertEqual(sticky_store.render(state, SID_B), "")
+        self.assertEqual(fusen_store.render(state, SID_B), "")
 
     def test_one_note_on_many_conversations_one_body(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="API仕様", pin_to=SID_A)
-        sticky_store.attach(state, note["id"], SID_B)
-        sticky_store.set_body(state, note["id"], "v2 に更新", author="user")
-        sticky_store.write(state)
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="API仕様", pin_to=SID_A)
+        fusen_store.attach(state, note["id"], SID_B)
+        fusen_store.set_body(state, note["id"], "v2 に更新", author="user")
+        fusen_store.write(state)
 
-        state = sticky_store.load()
+        state = fusen_store.load()
         for sid in (SID_A, SID_B):
-            text = sticky_store.render(state, sid)
+            text = fusen_store.render(state, sid)
             self.assertIn("v2 に更新", text)
             self.assertIn('rev="2"', text)
         self.assertEqual(len(state["notes"][note["id"]]["sessions"]), 2)
 
     def test_several_notes_on_one_conversation_and_cap(self) -> None:
-        state = sticky_store.load()
+        state = fusen_store.load()
         for index in range(5):
-            sticky_store.create(state, name=f"n{index}", pin_to=SID_A)
-        sticky_store.write(state)
-        with self.assertRaises(sticky_store.StickyError):
-            sticky_store.create(state, name="overflow", pin_to=SID_A)
+            fusen_store.create(state, name=f"n{index}", pin_to=SID_A)
+        fusen_store.write(state)
+        with self.assertRaises(fusen_store.FusenError):
+            fusen_store.create(state, name="overflow", pin_to=SID_A)
 
-        state = sticky_store.load()
-        self.assertEqual(len(sticky_store.notes_for(state, SID_A)), 5)
-        text = sticky_store.render(state, SID_A)
+        state = fusen_store.load()
+        self.assertEqual(len(fusen_store.notes_for(state, SID_A)), 5)
+        text = fusen_store.render(state, SID_A)
         self.assertEqual(text.count("<note "), 5)
 
     def test_body_is_capped_and_control_characters_dropped(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="長文", body="a" * (sticky_store.MAX_BODY + 500) + "\x00\x07")
-        self.assertEqual(len(note["body"]), sticky_store.MAX_BODY)
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="長文", body="a" * (fusen_store.MAX_BODY + 500) + "\x00\x07")
+        self.assertEqual(len(note["body"]), fusen_store.MAX_BODY)
         self.assertNotIn("\x00", note["body"])
 
     def test_settings_are_clamped(self) -> None:
-        state = sticky_store.load()
-        sticky_store.set_settings(state, {"max_chars": 99999, "max_notes_per_session": 0, "inject": "nonsense"})
+        state = fusen_store.load()
+        fusen_store.set_settings(state, {"max_chars": 99999, "max_notes_per_session": 0, "inject": "nonsense"})
         self.assertEqual(state["settings"]["max_chars"], 2000)
         self.assertEqual(state["settings"]["max_notes_per_session"], 1)
         self.assertEqual(state["settings"]["inject"], "auto")
@@ -111,123 +111,123 @@ class StoreCase(unittest.TestCase):
     # ── history ──────────────────────────────────────────────────────────
 
     def test_rewrite_keeps_history_and_revert(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="memo", body="最初")
-        sticky_store.set_body(state, note["id"], "二番目")
-        sticky_store.set_body(state, note["id"], "三番目", author="hermes")
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="memo", body="最初")
+        fusen_store.set_body(state, note["id"], "二番目")
+        fusen_store.set_body(state, note["id"], "三番目", author="hermes")
 
         note = state["notes"][note["id"]]
         self.assertEqual(note["rev"], 3)
         self.assertEqual(note["author"], "hermes")
         self.assertEqual([entry["body"] for entry in note["history"]], ["最初", "二番目"])
 
-        sticky_store.revert(state, note["id"])
+        fusen_store.revert(state, note["id"])
         self.assertEqual(state["notes"][note["id"]]["body"], "二番目")
         self.assertEqual(state["notes"][note["id"]]["rev"], 4)
 
     def test_history_depth_is_enforced(self) -> None:
-        state = sticky_store.load()
-        sticky_store.set_settings(state, {"history_depth": 2})
-        note = sticky_store.create(state, name="memo", body="0")
+        state = fusen_store.load()
+        fusen_store.set_settings(state, {"history_depth": 2})
+        note = fusen_store.create(state, name="memo", body="0")
         for index in range(1, 6):
-            sticky_store.set_body(state, note["id"], str(index))
+            fusen_store.set_body(state, note["id"], str(index))
         self.assertEqual(len(state["notes"][note["id"]]["history"]), 2)
 
     def test_expect_rev_refuses_a_stale_write(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="memo", body="mine")
-        sticky_store.set_body(state, note["id"], "user edit")
-        with self.assertRaises(sticky_store.StickyError):
-            sticky_store.set_body(state, note["id"], "hermes edit", author="hermes", expect_rev=1)
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="memo", body="mine")
+        fusen_store.set_body(state, note["id"], "user edit")
+        with self.assertRaises(fusen_store.FusenError):
+            fusen_store.set_body(state, note["id"], "hermes edit", author="hermes", expect_rev=1)
         self.assertEqual(state["notes"][note["id"]]["body"], "user edit")
 
     # ── proposals ────────────────────────────────────────────────────────
 
     def test_proposal_waits_for_the_user(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="memo", body="before")
-        entry = sticky_store.propose(state, note["id"], "after", reason="整理", sid=SID_A)
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="memo", body="before")
+        entry = fusen_store.propose(state, note["id"], "after", reason="整理", sid=SID_A)
 
         self.assertEqual(state["notes"][note["id"]]["body"], "before")
         self.assertEqual(len(state["pending"]), 1)
 
-        sticky_store.accept(state, entry["id"])
+        fusen_store.accept(state, entry["id"])
         self.assertEqual(state["notes"][note["id"]]["body"], "after")
         self.assertEqual(state["notes"][note["id"]]["author"], "hermes")
         self.assertEqual(state["pending"], [])
 
     def test_proposal_is_dropped_when_the_note_moved(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="memo", body="before")
-        entry = sticky_store.propose(state, note["id"], "hermes text")
-        sticky_store.set_body(state, note["id"], "user text")
-        with self.assertRaises(sticky_store.StickyError):
-            sticky_store.accept(state, entry["id"])
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="memo", body="before")
+        entry = fusen_store.propose(state, note["id"], "hermes text")
+        fusen_store.set_body(state, note["id"], "user text")
+        with self.assertRaises(fusen_store.FusenError):
+            fusen_store.accept(state, entry["id"])
         self.assertEqual(state["notes"][note["id"]]["body"], "user text")
 
     def test_new_proposal_replaces_the_old_one(self) -> None:
-        state = sticky_store.load()
-        note = sticky_store.create(state, name="memo")
-        sticky_store.propose(state, note["id"], "one")
-        sticky_store.propose(state, note["id"], "two")
+        state = fusen_store.load()
+        note = fusen_store.create(state, name="memo")
+        fusen_store.propose(state, note["id"], "one")
+        fusen_store.propose(state, note["id"], "two")
         self.assertEqual([entry["body"] for entry in state["pending"]], ["two"])
 
     # ── batch atomicity ──────────────────────────────────────────────────
 
     def test_a_bad_op_in_a_batch_writes_nothing(self) -> None:
-        sticky_store.apply_ops([{"op": "create", "name": "ok"}])
-        before = sticky_store.load()
-        with self.assertRaises(sticky_store.StickyError):
-            sticky_store.apply_ops([{"op": "create", "name": "half"}, {"op": "nonsense"}])
-        after = sticky_store.load()
+        fusen_store.apply_ops([{"op": "create", "name": "ok"}])
+        before = fusen_store.load()
+        with self.assertRaises(fusen_store.FusenError):
+            fusen_store.apply_ops([{"op": "create", "name": "half"}, {"op": "nonsense"}])
+        after = fusen_store.load()
         self.assertEqual(after["notes"].keys(), before["notes"].keys())
 
     # ── cache ────────────────────────────────────────────────────────────
 
     def test_reads_are_cached_until_the_file_changes(self) -> None:
-        sticky_store.apply_ops([{"op": "create", "name": "cached"}])
-        first = sticky_store.load()
-        second = sticky_store.load()
+        fusen_store.apply_ops([{"op": "create", "name": "cached"}])
+        first = fusen_store.load()
+        second = fusen_store.load()
         self.assertIs(first, second)
 
         # Another writer replaces the file: the (mtime, size) key must notice.
-        path = sticky_store.state_path()
+        path = fusen_store.state_path()
         raw = json.loads(path.read_text(encoding="utf-8"))
         raw["notes"] = {}
         path.write_text(json.dumps(raw), encoding="utf-8")
         os.utime(path, (os.path.getmtime(path) + 2, os.path.getmtime(path) + 2))
 
-        self.assertEqual(sticky_store.load()["notes"], {})
+        self.assertEqual(fusen_store.load()["notes"], {})
 
     def test_two_writers_do_not_lose_each_other(self) -> None:
-        sticky_store.apply_ops([{"op": "create", "name": "a"}])
+        fusen_store.apply_ops([{"op": "create", "name": "a"}])
         # A second writer's change lands between our read and our write.
-        sticky_store.apply_ops([{"op": "create", "name": "b"}])
-        sticky_store.apply_ops([{"op": "create", "name": "c"}])
-        self.assertEqual(len(sticky_store.load()["notes"]), 3)
+        fusen_store.apply_ops([{"op": "create", "name": "b"}])
+        fusen_store.apply_ops([{"op": "create", "name": "c"}])
+        self.assertEqual(len(fusen_store.load()["notes"]), 3)
 
 
 class InjectCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.mkdtemp(prefix="sticky-tags-inject-")
-        sticky_store.set_data_dir(self.tmp)
-        sticky_store.invalidate()
-        sticky_inject._sent.clear()
-        sticky_inject._dirty.clear()
-        sticky_inject._carries.clear()
-        state = sticky_store.load()
-        self.note = sticky_store.create(state, name="memo", body="本文", pin_to=SID_A)
-        sticky_store.write(state)
-        self.state = sticky_store.load()
+        self.tmp = tempfile.mkdtemp(prefix="fusen-inject-")
+        fusen_store.set_data_dir(self.tmp)
+        fusen_store.invalidate()
+        fusen_inject._sent.clear()
+        fusen_inject._dirty.clear()
+        fusen_inject._carries.clear()
+        state = fusen_store.load()
+        self.note = fusen_store.create(state, name="memo", body="本文", pin_to=SID_A)
+        fusen_store.write(state)
+        self.state = fusen_store.load()
 
     def tearDown(self) -> None:
-        sticky_store.set_data_dir(None)
-        sticky_store.invalidate()
+        fusen_store.set_data_dir(None)
+        fusen_store.invalidate()
 
     def call(self, **kwargs):
         defaults = {"session_id": SID_A, "user_message": "hi", "conversation_history": [], "is_first_turn": False}
         defaults.update(kwargs)
-        return sticky_inject.pre_llm_call(**defaults)
+        return fusen_inject.pre_llm_call(**defaults)
 
     def test_first_turn_injects(self) -> None:
         out = self.call(is_first_turn=True)
@@ -235,21 +235,21 @@ class InjectCase(unittest.TestCase):
 
     def test_second_turn_adds_nothing(self) -> None:
         self.assertIsNotNone(self.call(is_first_turn=True))
-        self.assertIsNone(self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<sticky-notes>"}]))
+        self.assertIsNone(self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<fusen-notes>"}]))
 
     def test_a_rewrite_re_injects(self) -> None:
         self.call(is_first_turn=True)
-        sticky_store.apply_ops([{"op": "set_body", "note_id": self.note["id"], "body": "直した"}])
-        out = self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<sticky-notes>"}])
+        fusen_store.apply_ops([{"op": "set_body", "note_id": self.note["id"], "body": "直した"}])
+        out = self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<fusen-notes>"}])
         self.assertIn("直した", out["context"])
 
     def test_marking_dirty_re_injects_without_a_signature_change(self) -> None:
         self.call(is_first_turn=True)
-        sticky_inject.mark_dirty(SID_A)
-        self.assertIsNotNone(self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<sticky-notes>"}]))
+        fusen_inject.mark_dirty(SID_A)
+        self.assertIsNotNone(self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<fusen-notes>"}]))
 
     def test_a_fresh_process_does_not_repeat_a_block_already_in_history(self) -> None:
-        history = [{"role": "user", "content": "…<sticky-notes note=\"x\">本文</sticky-notes>"}]
+        history = [{"role": "user", "content": "…<fusen-notes note=\"x\">本文</fusen-notes>"}]
         self.assertIsNone(self.call(is_first_turn=False, conversation_history=history))
 
     def test_a_fresh_process_repairs_a_conversation_without_the_block(self) -> None:
@@ -260,139 +260,139 @@ class InjectCase(unittest.TestCase):
         self.assertIsNone(self.call(session_id=SID_B, is_first_turn=True))
 
     def test_inject_off_silences_it(self) -> None:
-        sticky_store.apply_ops([{"op": "settings", "patch": {"inject": "off"}}])
+        fusen_store.apply_ops([{"op": "settings", "patch": {"inject": "off"}}])
         self.assertIsNone(self.call(is_first_turn=True))
 
     def test_inject_always_every_turn(self) -> None:
-        sticky_store.apply_ops([{"op": "settings", "patch": {"inject": "always"}}])
+        fusen_store.apply_ops([{"op": "settings", "patch": {"inject": "always"}}])
         self.assertIsNotNone(self.call(is_first_turn=True))
-        self.assertIsNotNone(self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<sticky-notes>"}]))
+        self.assertIsNotNone(self.call(is_first_turn=False, conversation_history=[{"role": "user", "content": "<fusen-notes>"}]))
 
     def test_compaction_hook_marks_the_session_dirty(self) -> None:
         self.call(is_first_turn=True)
-        sticky_inject.post_compaction(session_id=SID_A)
-        self.assertIn(SID_A, sticky_inject._dirty)
+        fusen_inject.post_compaction(session_id=SID_A)
+        self.assertIn(SID_A, fusen_inject._dirty)
 
     def test_delete_hook_unpins(self) -> None:
-        sticky_inject.forget(SID_A)
-        sticky_inject.on_session_delete(session_id=SID_A, reason="delete")
-        self.assertEqual(sticky_store.load()["notes"][self.note["id"]]["sessions"], [])
+        fusen_inject.forget(SID_A)
+        fusen_inject.on_session_delete(session_id=SID_A, reason="delete")
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["sessions"], [])
 
     def test_archive_hook_keeps_the_pin(self) -> None:
-        sticky_inject.on_session_delete(session_id=SID_A, reason="archive")
-        self.assertEqual(sticky_store.load()["notes"][self.note["id"]]["sessions"], [SID_A])
+        fusen_inject.on_session_delete(session_id=SID_A, reason="archive")
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["sessions"], [SID_A])
 
     def test_an_unknown_session_is_harmless(self) -> None:
-        sticky_inject.on_session_delete(session_id="nope", reason="delete")
-        self.assertEqual(sticky_store.load()["notes"][self.note["id"]]["sessions"], [SID_A])
+        fusen_inject.on_session_delete(session_id="nope", reason="delete")
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["sessions"], [SID_A])
 
 
 class ToolCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.mkdtemp(prefix="sticky-tags-tools-")
-        sticky_store.set_data_dir(self.tmp)
-        sticky_store.invalidate()
-        sticky_inject._sent.clear()
-        state = sticky_store.load()
-        self.note = sticky_store.create(state, name="調査メモ", body="途中まで", pin_to=SID_A)
-        sticky_store.write(state)
+        self.tmp = tempfile.mkdtemp(prefix="fusen-tools-")
+        fusen_store.set_data_dir(self.tmp)
+        fusen_store.invalidate()
+        fusen_inject._sent.clear()
+        state = fusen_store.load()
+        self.note = fusen_store.create(state, name="調査メモ", body="途中まで", pin_to=SID_A)
+        fusen_store.write(state)
         self.ctx = _FakeContext()
-        sticky_tools.bind(self.ctx)
+        fusen_tools.bind(self.ctx)
 
     def tearDown(self) -> None:
-        sticky_store.set_data_dir(None)
-        sticky_store.invalidate()
-        sticky_tools.bind(None)
+        fusen_store.set_data_dir(None)
+        fusen_store.invalidate()
+        fusen_tools.bind(None)
 
     def test_list_reports_the_pinned_notes(self) -> None:
-        out = json.loads(sticky_tools.sticky_notes({"action": "list"}, session_id=SID_A))
+        out = json.loads(fusen_tools.fusen_notes({"action": "list"}, session_id=SID_A))
         self.assertTrue(out["ok"])
         self.assertEqual(out["notes"][0]["name"], "調査メモ")
         self.assertTrue(out["auto_edit"])
 
     def test_search_finds_the_other_conversations(self) -> None:
-        sticky_store.apply_ops([{"op": "attach", "note_id": self.note["id"], "session_id": SID_B}])
-        out = json.loads(sticky_tools.sticky_notes({"action": "search", "note_id": self.note["id"]}, session_id=SID_A))
+        fusen_store.apply_ops([{"op": "attach", "note_id": self.note["id"], "session_id": SID_B}])
+        out = json.loads(fusen_tools.fusen_notes({"action": "search", "note_id": self.note["id"]}, session_id=SID_A))
         self.assertEqual(sorted(out["session_ids"]), sorted([SID_A, SID_B]))
 
     def test_read_goes_through_dispatch_tool(self) -> None:
-        out = json.loads(sticky_tools.sticky_notes({"action": "read", "session_id": SID_B}, session_id=SID_A))
+        out = json.loads(fusen_tools.fusen_notes({"action": "read", "session_id": SID_B}, session_id=SID_A))
         self.assertTrue(out["ok"])
         self.assertEqual(self.ctx.calls[-1][0], "session_search")
         self.assertEqual(self.ctx.calls[-1][1], {"session_id": SID_B})
 
     def test_write_applies_when_auto_edit_is_on(self) -> None:
         out = json.loads(
-            sticky_tools.sticky_notes_write(
+            fusen_tools.fusen_write(
                 {"action": "write", "note_id": self.note["id"], "body": "更新した", "expect_rev": 1},
                 session_id=SID_A,
             )
         )
         self.assertTrue(out["applied"])
-        self.assertEqual(sticky_store.load()["notes"][self.note["id"]]["body"], "更新した")
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["body"], "更新した")
 
     def test_write_becomes_a_proposal_when_off(self) -> None:
-        sticky_store.apply_ops([{"op": "settings", "patch": {"auto_edit": False}}])
+        fusen_store.apply_ops([{"op": "settings", "patch": {"auto_edit": False}}])
         out = json.loads(
-            sticky_tools.sticky_notes_write({"action": "write", "note_id": self.note["id"], "body": "案"}, session_id=SID_A)
+            fusen_tools.fusen_write({"action": "write", "note_id": self.note["id"], "body": "案"}, session_id=SID_A)
         )
         self.assertTrue(out["proposed"])
         self.assertFalse(out["applied"])
-        self.assertEqual(sticky_store.load()["notes"][self.note["id"]]["body"], "途中まで")
-        self.assertEqual(len(sticky_store.load()["pending"]), 1)
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["body"], "途中まで")
+        self.assertEqual(len(fusen_store.load()["pending"]), 1)
 
     def test_pin_and_unpin(self) -> None:
-        out = json.loads(sticky_tools.sticky_notes_pin({"action": "attach", "note_id": self.note["id"]}, session_id=SID_B))
+        out = json.loads(fusen_tools.fusen_pin({"action": "attach", "note_id": self.note["id"]}, session_id=SID_B))
         self.assertTrue(out["ok"])
         self.assertEqual(out["pinned_here"], 1)
-        out = json.loads(sticky_tools.sticky_notes_pin({"action": "detach", "note_id": self.note["id"]}, session_id=SID_B))
+        out = json.loads(fusen_tools.fusen_pin({"action": "detach", "note_id": self.note["id"]}, session_id=SID_B))
         self.assertEqual(out["pinned_here"], 0)
 
     def test_an_unknown_note_is_an_error_not_a_crash(self) -> None:
-        out = json.loads(sticky_tools.sticky_notes({"action": "get", "note_id": "nope"}, session_id=SID_A))
+        out = json.loads(fusen_tools.fusen_notes({"action": "get", "note_id": "nope"}, session_id=SID_A))
         self.assertFalse(out["ok"])
 
 
 class CommandCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.mkdtemp(prefix="sticky-tags-cmd-")
-        sticky_store.set_data_dir(self.tmp)
-        sticky_store.invalidate()
-        sticky_inject._sent.clear()
+        self.tmp = tempfile.mkdtemp(prefix="fusen-cmd-")
+        fusen_store.set_data_dir(self.tmp)
+        fusen_store.invalidate()
+        fusen_inject._sent.clear()
 
     def tearDown(self) -> None:
-        sticky_store.set_data_dir(None)
-        sticky_store.invalidate()
+        fusen_store.set_data_dir(None)
+        fusen_store.invalidate()
 
-    def test_sticky_creates_and_pins(self) -> None:
-        out = sticky_commands.sticky_command("買い物", session_id=SID_A)
+    def test_fusen_creates_and_pins(self) -> None:
+        out = fusen_commands.fusen_command("買い物", session_id=SID_A)
         self.assertIn("買い物", out)
-        state = sticky_store.load()
-        self.assertEqual(len(sticky_store.notes_for(state, SID_A)), 1)
+        state = fusen_store.load()
+        self.assertEqual(len(fusen_store.notes_for(state, SID_A)), 1)
 
-    def test_sticky_without_args_lists(self) -> None:
-        sticky_commands.sticky_command("買い物", session_id=SID_A)
-        out = sticky_commands.sticky_command("", session_id=SID_A)
+    def test_fusen_without_args_lists(self) -> None:
+        fusen_commands.fusen_command("買い物", session_id=SID_A)
+        out = fusen_commands.fusen_command("", session_id=SID_A)
         self.assertIn("買い物", out)
         self.assertIn("付箋 1枚", out)
 
-    def test_stickyedit_writes_the_body(self) -> None:
-        sticky_commands.sticky_command("買い物", session_id=SID_A)
-        out = sticky_commands.stickyedit_command("卵と牛乳", session_id=SID_A)
+    def test_fusenedit_writes_the_body(self) -> None:
+        fusen_commands.fusen_command("買い物", session_id=SID_A)
+        out = fusen_commands.fusenedit_command("卵と牛乳", session_id=SID_A)
         self.assertIn("rev 2", out)
-        state = sticky_store.load()
-        note = sticky_store.notes_for(state, SID_A)[0]
+        state = fusen_store.load()
+        note = fusen_store.notes_for(state, SID_A)[0]
         self.assertEqual(note["body"], "卵と牛乳")
 
-    def test_unsticky_keeps_the_note(self) -> None:
-        sticky_commands.sticky_command("買い物", session_id=SID_A)
-        sticky_commands.unsticky_command("", session_id=SID_A)
-        state = sticky_store.load()
-        self.assertEqual(sticky_store.notes_for(state, SID_A), [])
+    def test_unfusen_keeps_the_note(self) -> None:
+        fusen_commands.fusen_command("買い物", session_id=SID_A)
+        fusen_commands.unfusen_command("", session_id=SID_A)
+        state = fusen_store.load()
+        self.assertEqual(fusen_store.notes_for(state, SID_A), [])
         self.assertEqual(len(state["notes"]), 1)
 
     def test_commands_need_a_session(self) -> None:
-        self.assertIn("会話", sticky_commands.sticky_command("x", session_id=""))
+        self.assertIn("会話", fusen_commands.fusen_command("x", session_id=""))
 
 
 class RegisterCase(unittest.TestCase):
@@ -400,11 +400,11 @@ class RegisterCase(unittest.TestCase):
 
     def test_register_wires_tools_hooks_and_commands(self) -> None:
         ctx = _FakeContext()
-        sys.modules["sticky_tags"].register(ctx)
+        sys.modules["fusen"].register(ctx)
 
-        self.assertEqual(sorted(ctx.tools), ["sticky_notes", "sticky_notes_pin", "sticky_notes_write"])
+        self.assertEqual(sorted(ctx.tools), ["fusen_notes", "fusen_pin", "fusen_write"])
         self.assertEqual(sorted(ctx.hooks), ["on_session_delete", "post_compaction", "pre_llm_call"])
-        self.assertEqual(sorted(ctx.commands), ["sticky", "stickyedit", "stickyundo", "unsticky"])
+        self.assertEqual(sorted(ctx.commands), ["fusen", "fusenedit", "fusenundo", "unfusen"])
 
         manifest = (ROOT / "plugin.yaml").read_text(encoding="utf-8")
         for name in ctx.tools:
@@ -414,8 +414,8 @@ class RegisterCase(unittest.TestCase):
 
     def test_register_binds_the_dispatch_context(self) -> None:
         ctx = _FakeContext()
-        sys.modules["sticky_tags"].register(ctx)
-        self.assertIs(sticky_tools._ctx, ctx)
+        sys.modules["fusen"].register(ctx)
+        self.assertIs(fusen_tools._ctx, ctx)
 
 
 class ApiCase(unittest.TestCase):
@@ -436,7 +436,7 @@ class ApiCase(unittest.TestCase):
         cls._saved_events_module = sys.modules.get(cls._EVENTS_MODULE)
         sys.modules[cls._EVENTS_MODULE] = recorder
 
-        spec = importlib.util.spec_from_file_location("sticky_tags_api", ROOT / "dashboard" / "plugin_api.py")
+        spec = importlib.util.spec_from_file_location("fusen_api", ROOT / "dashboard" / "plugin_api.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         cls.api = module
@@ -450,7 +450,7 @@ class ApiCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.events.clear()
-        self.tmp = tempfile.mkdtemp(prefix="sticky-tags-api-")
+        self.tmp = tempfile.mkdtemp(prefix="fusen-api-")
         self.api.store.set_data_dir(self.tmp)
         self.api.store.invalidate()
 
@@ -463,7 +463,7 @@ class ApiCase(unittest.TestCase):
         payload = self.api.post_ops({"ops": [{"op": "create", "name": "a", "pin_to": SID_A}], "session_id": SID_A})
         self.assertEqual(len(payload["notes"]), 1)
         self.assertEqual(payload["session_note_ids"], [payload["notes"][0]["id"]])
-        self.assertEqual([(p, e) for p, e, _ in self.events], [("sticky-tags", "notes.changed")])
+        self.assertEqual([(p, e) for p, e, _ in self.events], [("fusen", "notes.changed")])
         self.assertEqual(self.events[0][2]["session_id"], SID_A)
 
         note_id = payload["notes"][0]["id"]
@@ -502,8 +502,8 @@ class ApiCase(unittest.TestCase):
         drives the real resolution without needing the host: write in A, read in B, read A again.
         """
         self.api.store.set_data_dir(None)
-        home_a = tempfile.mkdtemp(prefix="sticky-home-a-")
-        home_b = tempfile.mkdtemp(prefix="sticky-home-b-")
+        home_a = tempfile.mkdtemp(prefix="fusen-home-a-")
+        home_b = tempfile.mkdtemp(prefix="fusen-home-b-")
         saved = os.environ.get("HERMES_HOME")
         try:
             os.environ["HERMES_HOME"] = home_a

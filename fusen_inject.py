@@ -1,4 +1,4 @@
-"""Sticky Tags — what the model is told, and when.
+"""Fusen — what the model is told, and when.
 
 Injection rides ``pre_llm_call``, which appends to the *current turn's user
 message*. The system prompt is never touched, so nothing upstream of this turn
@@ -17,7 +17,7 @@ actually stale:
 Every other turn adds nothing, so consecutive turns share an identical prefix
 and the cache hits. ``settings.inject == "always"`` exists for people who would
 rather pay that cost; ``"off"`` sends nothing and leaves the note text to the
-sticky_tools.
+fusen_tools.
 """
 
 from __future__ import annotations
@@ -25,11 +25,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable, Optional
 
-from . import sticky_store
+from . import fusen_store
 
 logger = logging.getLogger(__name__)
 
-MARKER = '<sticky-notes'
+MARKER = '<fusen-notes'
 MAX_INJECT_CHARS = 6000
 
 # session id → the (note id, rev) pairs the model was last told about
@@ -87,7 +87,7 @@ def should_inject(state: dict[str, Any], sid: str, *, is_first_turn: bool, histo
     mode = state["settings"]["inject"]
     if mode == "off":
         return False
-    if not sticky_store.notes_for(state, sid):
+    if not fusen_store.notes_for(state, sid):
         return False
     if mode == "always":
         return True
@@ -95,8 +95,8 @@ def should_inject(state: dict[str, Any], sid: str, *, is_first_turn: bool, histo
         return True
     if sid in _dirty:
         return True
-    if sticky_store.signature(state, sid) != _sent.get(sid):
-        # Injected earlier this process and changed since: re-sticky_inject.
+    if fusen_store.signature(state, sid) != _sent.get(sid):
+        # Injected earlier this process and changed since: re-fusen_inject.
         if sid in _sent:
             return True
         # Never injected here: only if the history does not already carry it.
@@ -105,9 +105,9 @@ def should_inject(state: dict[str, Any], sid: str, *, is_first_turn: bool, histo
 
 
 def build(state: dict[str, Any], sid: str) -> str:
-    text = sticky_store.render(state, sid)
+    text = fusen_store.render(state, sid)
     if len(text) > MAX_INJECT_CHARS:
-        text = text[:MAX_INJECT_CHARS].rstrip() + "\n</sticky-notes>"
+        text = text[:MAX_INJECT_CHARS].rstrip() + "\n</fusen-notes>"
     return text
 
 
@@ -125,19 +125,19 @@ def pre_llm_call(
     if not sid:
         return None
     try:
-        state = sticky_store.load()
+        state = fusen_store.load()
         if not should_inject(state, sid, is_first_turn=bool(is_first_turn), history=conversation_history):
             return None
         text = build(state, sid)
     except Exception:  # a broken store must never break the user's turn
-        logger.warning("sticky-tags: injection skipped", exc_info=True)
+        logger.warning("fusen: injection skipped", exc_info=True)
         return None
 
     if not text:
         _sent[sid] = ()
         return None
 
-    _sent[sid] = sticky_store.signature(state, sid)
+    _sent[sid] = fusen_store.signature(state, sid)
     _dirty.discard(sid)
     _carries.add(sid)
     return {"context": text}
@@ -174,14 +174,14 @@ def on_session_delete(session_id: str = "", reason: str = "", deleted_ids: Any =
                     note["sessions"] = kept
                     touched += 1
             if not touched:
-                raise sticky_store.StickyError("nothing to prune")  # abort the write
+                raise fusen_store.FusenError("nothing to prune")  # abort the write
             return touched
 
-        sticky_store.mutate(_prune)
-    except sticky_store.StickyError:
+        fusen_store.mutate(_prune)
+    except fusen_store.FusenError:
         return
     except Exception:
-        logger.warning("sticky-tags: prune after delete failed", exc_info=True)
+        logger.warning("fusen: prune after delete failed", exc_info=True)
 
 
 def note_changed(sid: str = "") -> None:

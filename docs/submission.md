@@ -2,25 +2,25 @@
 
 Everything here is ready to paste/commit. Nothing has been pushed.
 
-## 1. Catalog entry — `plugin-catalog/sticky-tags.yaml`
+## 1. Catalog entry — `plugin-catalog/fusen.yaml`
 
 Copy into `NousResearch/hermes-agent` at that path. `repo` and `sha` are filled
 after the first push (`sha` must be the full 40-character commit SHA, not a tag).
 
 ```yaml
-name: sticky-tags
-repo: https://github.com/<owner>/hermes-sticky-tags
+name: fusen
+repo: https://github.com/Tokagehausu/hermes-fusen
 sha: '<40-char-sha>'
-description: A note that lives on a conversation — one body, pinned to many chats, injected only when the model's view is stale, and rewriteable by the agent with your approval.
-maintainer: <github-handle>
+description: 'Fusen (付箋, Japanese for sticky note) are notes pinned to conversations: one editable body shared by every chat it is pinned to, handed to the model only when its view is stale, and rewriteable by Hermes with your approval.'
+maintainer: Tokagehausu
 tier: community
 category: desktop
 requires_hermes: '>=0.22.5'
 version: '0.1.0'
-title: 'Sticky Tags'
+title: 'Fusen'
 readme: true
 capabilities:
-  provides_tools: [sticky_notes, sticky_notes_pin, sticky_notes_write]
+  provides_tools: [fusen_notes, fusen_pin, fusen_write]
   provides_hooks: [pre_llm_call, post_compaction, on_session_delete]
   provides_middleware: []
   requires_env: []
@@ -32,14 +32,14 @@ known_issues:
 
 ## 2. PR — title and body
 
-**Title:** `plugin-catalog: add sticky-tags`
+**Title:** `plugin-catalog: add fusen`
 
 **Body:**
 
 ```markdown
-Adds `sticky-tags` to the catalog.
+Adds `fusen` to the catalog.
 
-A sticky note here is a tag that carries an editable body: pin one note to many
+A fusen (付箋, Japanese for sticky note) is a tag that carries an editable body: pin one note to many
 conversations, rewrite it once and every pinned conversation follows. It sits
 between "tags" (grouping only) and "notes" (a text file the agent reads on
 demand) — the missing piece was a note *attached to the conversation*, so the
@@ -50,7 +50,7 @@ What it does that the nearby entries do not:
 - one body shared by N conversations (no copy drift between chats)
 - the notes are injected into the turn only when the model's view is stale, so
   the provider prefix cache keeps hitting (see below)
-- `sticky_notes(action="search")` finds the other chats carrying the same note,
+- `fusen_notes(action="search")` finds the other chats carrying the same note,
   and `action="read"` pulls their messages through the built-in `session_search`
 - the agent can rewrite a body, with a switch that turns that into "file a
   proposal the user confirms", plus a revision history and one-click undo
@@ -67,7 +67,7 @@ routes, palette, status bar, `ctx.i18n`). The plugin never opens `state.db` —
 titles come from `session.list`, message text from `session_search`.
 
 External communication: none. Local files: one JSON file under
-`plugin_data_dir("sticky-tags")`. Details in the README.
+`plugin_data_dir("fusen")`. Details in the README.
 
 `hermes plugins validate .` passes with no warnings. 49 unit tests
 (`python -m unittest discover -s tests`).
@@ -86,7 +86,7 @@ External communication: none. Local files: one JSON file under
 | 70–82 | History → restore the previous revision | "Every revision is kept." |
 | 82–90 | panel → pin icon → New chat with this note | "And this is how I pick a dropped thread back up." |
 
-Post text: `Sticky notes that live on conversations — one body, many chats,
+Post text: `Fusen: sticky notes that live on conversations — one body, many chats,
 injected only when the model's stale. Plugin for @NousResearch Hermes.`
 
 ## 4. Checklist

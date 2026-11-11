@@ -1,5 +1,5 @@
 /**
- * Sticky Tags — desktop half.
+ * Fusen — desktop half.
  *
  * A note is a tag that carries a body: pin one note to many conversations, pin
  * several notes to one conversation, rewrite the body once and every pinned
@@ -10,7 +10,7 @@
  *   - right pane: read, rewrite, history, siblings    [panes]
  *   - page + palette + status bar                     [routes/palette/statusBar]
  *
- * Data lives in the backend (../dashboard/plugin_api.py) so the CLI's /sticky
+ * Data lives in the backend (../dashboard/plugin_api.py) so the CLI's /fusen
  * commands and the panel write the same file. Every write is a batch of ops;
  * the answer is the new state, which is what gets painted.
  */
@@ -42,8 +42,8 @@ import {
 import { useEffect, useState } from 'react'
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
 
-const ID = 'sticky-tags'
-const PAGE = '/sticky-tags'
+const ID = 'fusen'
+const PAGE = '/fusen'
 const PANE = `${ID}:notes`
 
 const SWATCHES = ['orange', 'blue', 'green', 'purple', 'red', 'gray']
@@ -60,7 +60,7 @@ const SWATCH_COLOR = {
 
 const STRINGS = {
   en: {
-    pane: { title: 'Sticky notes' },
+    pane: { title: 'Fusen' },
     bar: {
       pin: 'Pin a note',
       none: 'No note on this chat',
@@ -68,7 +68,7 @@ const STRINGS = {
       detach: 'Unpin from this chat'
     },
     page: {
-      title: 'Sticky notes',
+      title: 'Fusen',
       lead: 'A note is a tag with a body. Pin it to as many chats as you like; rewrite it once and every chat that carries it sees the change.',
       new: 'New note',
       name: 'Name',
@@ -1243,7 +1243,7 @@ function StatusChip() {
 
 export default {
   id: ID,
-  name: 'Sticky Tags',
+  name: 'Fusen',
   description: 'Notes that live on conversations: pin one note to many chats, rewrite it once.',
   register(ctx) {
     restCtx = ctx
@@ -1257,8 +1257,8 @@ export default {
       },
       {
         area: PANES_AREA,
-        title: 'Sticky notes',
-        data: { placement: 'right', title: 'Sticky notes', width: '320px', tabTitleText: () => t('pane.title') },
+        title: 'Fusen',
+        data: { placement: 'right', title: 'Fusen', width: '320px', tabTitleText: () => t('pane.title') },
         id: 'notes',
         render: () => jsx(NotesPane, {})
       },
@@ -1268,7 +1268,7 @@ export default {
         render: () => jsx(ComposerChips, {})
       },
       { area: ROUTES_AREA, data: { path: PAGE }, id: 'page', render: () => jsx(NotesPage, {}) },
-      { area: SIDEBAR_NAV_AREA, data: { codicon: 'note', label: 'Sticky notes', path: PAGE }, id: 'nav' },
+      { area: SIDEBAR_NAV_AREA, data: { codicon: 'note', label: 'Fusen', path: PAGE }, id: 'nav' },
       {
         area: STATUSBAR_AREAS.right,
         data: { render: () => jsx(StatusChip, {}) },
@@ -1280,7 +1280,7 @@ export default {
         data: {
           id: `${ID}.pane`,
           keywords: ['sticky', 'note', '付箋', 'メモ'],
-          label: 'Sticky notes: open the panel',
+          label: 'Fusen: open the panel',
           run: () => host.revealPane(PANE)
         },
         id: 'palette-pane'
@@ -1290,7 +1290,7 @@ export default {
         data: {
           id: `${ID}.page`,
           keywords: ['sticky', 'note', '付箋', 'メモ', 'settings'],
-          label: 'Sticky notes: manage notes and rewriting',
+          label: 'Fusen: manage notes and rewriting',
           run: () => host.navigate(PAGE)
         },
         id: 'palette-page'
@@ -1314,7 +1314,7 @@ export default {
           data: {
             id: `${ID}.toggle.${note.id}`,
             keywords: ['sticky', 'note', '付箋', note.name],
-            label: `Sticky note 「${note.name}」: pin / unpin on this chat`,
+            label: `Fusen 「${note.name}」: pin / unpin on this chat`,
             run: () => {
               const sid = focusedSession()
               if (!sid) {
