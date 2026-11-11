@@ -1039,29 +1039,34 @@ function Settings() {
   return jsxs('div', {
     style: { display: 'flex', flexDirection: 'column', gap: 10 },
     children: [
-      jsx('div', { style: { fontSize: 12, fontWeight: 600 }, children: t('page.settings') }),
+      jsx('div', { key: 'title', style: { fontSize: 12, fontWeight: 600 }, children: t('page.settings') }),
       jsxs('label', {
+        key: 'auto-edit',
         style: { alignItems: 'center', display: 'flex', gap: 8 },
         children: [
           jsx(Switch, {
             checked: Boolean(settings.auto_edit),
+            key: 'switch',
             onCheckedChange: auto_edit => void setSettings({ auto_edit }),
             size: 'xs'
           }),
           jsxs('span', {
+            key: 'text',
             style: { display: 'flex', flexDirection: 'column' },
             children: [
-              jsx('span', { style: { fontSize: 12 }, children: t('page.auto_edit') }),
-              jsx('span', { style: hint, children: t('page.auto_edit_hint') })
+              jsx('span', { key: 'label', style: { fontSize: 12 }, children: t('page.auto_edit') }),
+              jsx('span', { key: 'hint', style: hint, children: t('page.auto_edit_hint') })
             ]
           })
         ]
       }),
       jsxs('label', {
+        key: 'inject',
         style: { alignItems: 'center', display: 'flex', fontSize: 12, gap: 8 },
         children: [
-          jsx('span', { style: { minWidth: 180 }, children: t('page.inject') }),
+          jsx('span', { key: 'label', style: { minWidth: 180 }, children: t('page.inject') }),
           jsx('select', {
+            key: 'select',
             onChange: event => void setSettings({ inject: event.target.value }),
             style: {
               background: 'var(--ui-bg-input)',
@@ -1091,8 +1096,9 @@ function Settings() {
           {
             style: { alignItems: 'center', display: 'flex', fontSize: 12, gap: 8 },
             children: [
-              jsx('span', { style: { minWidth: 180 }, children: label }),
+              jsx('span', { key: 'label', style: { minWidth: 180 }, children: label }),
               jsx(Input, {
+                key: 'input',
                 max,
                 min,
                 onChange: event => num(key, event.target.value),
@@ -1139,22 +1145,25 @@ function NotesPage() {
       style: { display: 'flex', flexDirection: 'column', gap: 16, margin: '0 auto', maxWidth: 780, padding: '24px 20px' },
       children: [
         jsxs('div', {
+          key: 'head',
           children: [
             jsx('h1', { style: { fontSize: 18, fontWeight: 600, margin: 0 }, children: t('page.title') }),
             jsx('p', { style: { ...hint, fontSize: 12, margin: '4px 0 0', maxWidth: 620 }, children: t('page.lead') })
           ]
         }),
-        status.error ? jsx('div', { style: { ...hint, color: 'var(--ui-red)' }, children: status.error }) : null,
+        status.error ? jsx('div', { key: 'error', style: { ...hint, color: 'var(--ui-red)' }, children: status.error }) : null,
         data.pending.length
           ? jsxs('div', {
+              key: 'pending',
               style: { display: 'flex', flexDirection: 'column', gap: 8 },
               children: [
-                jsx('div', { style: { fontSize: 12, fontWeight: 600 }, children: t('page.proposals') }),
+                jsx('div', { key: 'title', style: { fontSize: 12, fontWeight: 600 }, children: t('page.proposals') }),
                 ...data.pending.map(entry => jsx(PendingCard, { entry }, entry.id))
               ]
             })
           : null,
         jsxs('div', {
+          key: 'create',
           style: { alignItems: 'center', display: 'flex', gap: 8 },
           children: [
             jsx(ColorPicker, { color, label: t('note.color'), onChange: setColor }),
@@ -1173,13 +1182,14 @@ function NotesPage() {
             jsx(Button, { disabled: !name.trim(), onClick: create, size: 'sm', children: t('page.new') })
           ]
         }),
-        jsx('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: [
-          jsx('div', { style: { fontSize: 12, fontWeight: 600 }, children: t('page.all') }),
+        jsx('div', { key: 'all', style: { display: 'flex', flexDirection: 'column', gap: 8 }, children: [
+          jsx('div', { key: 'title', style: { fontSize: 12, fontWeight: 600 }, children: t('page.all') }),
           data.notes.length
             ? data.notes.map(note => jsx(NoteCard, { note, sid: sid && note.sessions.includes(sid) ? sid : '' }, note.id))
-            : jsx('div', { style: hint, children: t('page.empty') })
+            : jsx('div', { key: 'empty', style: hint, children: t('page.empty') })
         ] }),
         jsx('div', {
+          key: 'settings',
           style: { borderTop: '1px solid var(--ui-stroke-secondary)', paddingTop: 12 },
           children: jsx(Settings, {})
         })
@@ -1205,7 +1215,7 @@ function StatusChip() {
     variant: 'ghost',
     children: [
       ...notes.slice(0, 3).map(note => jsx(Fragment, { children: dot(note.color, 6) }, note.id)),
-      jsx('span', { style: { marginLeft: 4 }, children: notes.length })
+      jsx('span', { key: 'count', style: { marginLeft: 4 }, children: notes.length })
     ]
   })
 }
