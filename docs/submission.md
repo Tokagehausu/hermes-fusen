@@ -69,7 +69,7 @@ titles come from `session.list`, message text from `session_search`.
 External communication: none. Local files: one JSON file under
 `plugin_data_dir("sticky-tags")`. Details in the README.
 
-`hermes plugins validate .` passes with no warnings. 48 unit tests
+`hermes plugins validate .` passes with no warnings. 49 unit tests
 (`python -m unittest discover -s tests`).
 ```
 
@@ -92,7 +92,7 @@ injected only when the model's stale. Plugin for @NousResearch Hermes.`
 ## 4. Checklist
 
 - [x] `hermes plugins validate .` — passes, no warnings
-- [x] 48 unit tests
+- [x] 49 unit tests
 - [x] README: install, usage, cache behaviour, settings, disclosures, limits
 - [x] MIT licence, `.gitignore`
 - [ ] local `git init` + first commit → real SHA

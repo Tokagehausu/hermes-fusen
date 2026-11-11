@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -420,14 +421,35 @@ class RegisterCase(unittest.TestCase):
 class ApiCase(unittest.TestCase):
     """The desktop's routes, called the way FastAPI calls them."""
 
+    _EVENTS_MODULE = "hermes_cli.plugin_events"
+
     @classmethod
     def setUpClass(cls) -> None:
+        # The routes announce writes on the host's event bus. Outside a running host, importing
+        # the bus pulls in the gateway, which can relaunch the interpreter. The tests swap in a
+        # recorder: what they check is the REST answer, and that a write was announced.
+        cls.events: list[tuple[str, str, dict]] = []
+        recorder = types.ModuleType(cls._EVENTS_MODULE)
+        recorder.broadcast_plugin_event = lambda plugin, event, payload=None: cls.events.append(
+            (plugin, event, dict(payload or {}))
+        )
+        cls._saved_events_module = sys.modules.get(cls._EVENTS_MODULE)
+        sys.modules[cls._EVENTS_MODULE] = recorder
+
         spec = importlib.util.spec_from_file_location("sticky_tags_api", ROOT / "dashboard" / "plugin_api.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         cls.api = module
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._saved_events_module is None:
+            sys.modules.pop(cls._EVENTS_MODULE, None)
+        else:
+            sys.modules[cls._EVENTS_MODULE] = cls._saved_events_module
+
     def setUp(self) -> None:
+        self.events.clear()
         self.tmp = tempfile.mkdtemp(prefix="sticky-tags-api-")
         self.api.store.set_data_dir(self.tmp)
         self.api.store.invalidate()
@@ -441,6 +463,8 @@ class ApiCase(unittest.TestCase):
         payload = self.api.post_ops({"ops": [{"op": "create", "name": "a", "pin_to": SID_A}], "session_id": SID_A})
         self.assertEqual(len(payload["notes"]), 1)
         self.assertEqual(payload["session_note_ids"], [payload["notes"][0]["id"]])
+        self.assertEqual([(p, e) for p, e, _ in self.events], [("sticky-tags", "notes.changed")])
+        self.assertEqual(self.events[0][2]["session_id"], SID_A)
 
         note_id = payload["notes"][0]["id"]
         payload = self.api.post_ops({"ops": [{"op": "set_body", "note_id": note_id, "body": "x"}]})

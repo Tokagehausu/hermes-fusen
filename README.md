@@ -174,11 +174,11 @@ sticky-tags/
 │   ├── manifest.json      # mounts the REST router
 │   └── plugin_api.py      # /state, /ops, /arm
 ├── desktop/plugin.js      # the desktop half (plain ESM, no build)
-└── tests/test_sticky.py   # 48 tests, stdlib only
+└── tests/test_sticky.py   # 49 tests, stdlib only
 ```
 
 ```bash
-python -m unittest discover -s tests       # 48 tests, stdlib only
+python -m unittest discover -s tests       # 49 tests, stdlib only
 node tools/check-i18n.mjs desktop/plugin.js  # every t('…') key exists in en and ja
 hermes plugins validate .
 ```
