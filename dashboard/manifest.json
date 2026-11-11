@@ -1,0 +1,10 @@
+{
+  "name": "sticky-tags",
+  "label": "Sticky Notes",
+  "description": "Notes that live on conversations: pin one note to many chats, rewrite it once.",
+  "icon": "Note",
+  "version": "0.1.0",
+  "tab": { "path": "/sticky-tags", "hidden": true },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

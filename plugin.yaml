@@ -1,0 +1,16 @@
+name: sticky-tags
+version: "0.1.0"
+description: Sticky notes that live on conversations — a tag with an editable body, pinned to many chats at once, injected only when the model's view is stale, and rewriteable by Hermes with your approval.
+manifest_version: 2
+api_version: 1
+license: MIT
+requires_hermes: "0.22.5"
+tags: [sessions, context, notes, memory, desktop]
+provides_tools:
+  - sticky_notes
+  - sticky_notes_pin
+  - sticky_notes_write
+provides_hooks:
+  - pre_llm_call
+  - post_compaction
+  - on_session_delete
