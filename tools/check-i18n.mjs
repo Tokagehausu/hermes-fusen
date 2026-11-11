@@ -1,7 +1,12 @@
 // Check that every t('...') key exists in both i18n bundles, and vice versa.
 import fs from 'node:fs'
 
-const src = fs.readFileSync(process.argv[2], 'utf8')
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const target = process.argv[2] ?? path.join(here, '..', 'desktop', 'plugin.js')
+const src = fs.readFileSync(target, 'utf8')
 const start = src.indexOf('const STRINGS = {')
 const end = src.indexOf('// ── store', start)
 const literal = src.slice(start, end).trim().replace(/;?$/, '')

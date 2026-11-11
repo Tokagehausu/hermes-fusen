@@ -12,6 +12,7 @@ use, so a second profile's window reads its own store.
 from __future__ import annotations
 
 import importlib.util
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -49,8 +50,12 @@ def _announce(payload: dict[str, Any], sid: str = "") -> dict[str, Any]:
             "notes.changed",
             {"updated_at": payload.get("updated_at") or 0, "session_id": sid},
         )
-    except Exception:  # the event bus is optional; the REST answer still is not
-        pass
+    except BaseException as exc:  # the event bus is optional; the REST answer is not.
+        # CancelledError is a BaseException, and a cancelled broadcast must not
+        # turn a write that already succeeded into a 500.
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        logging.getLogger(__name__).debug("sticky-tags broadcast skipped: %s", exc)
     return payload
 
 
