@@ -178,7 +178,8 @@ sticky-tags/
 ```
 
 ```bash
-python -m unittest discover -s tests     # 48 tests
+python -m unittest discover -s tests       # 48 tests, stdlib only
+node tools/check-i18n.mjs desktop/plugin.js  # every t('…') key exists in en and ja
 hermes plugins validate .
 ```
 

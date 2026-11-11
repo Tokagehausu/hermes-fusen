@@ -88,19 +88,15 @@ const STRINGS = {
       proposals: 'Waiting for you'
     },
     note: {
-      edit: 'Edit',
       save: 'Save',
-      saved: 'Saved',
       cancel: 'Cancel',
       rev: 'rev',
       by_hermes: 'Hermes wrote this',
       by_user: 'You wrote this',
-      history: 'History',
       restore: 'Restore',
       sessions: 'Chats carrying this note',
       no_sessions: 'Not pinned to any chat yet.',
       deleted: 'deleted',
-      open: 'Open',
       detach: 'Unpin',
       delete: 'Delete note',
       color: 'Colour',
@@ -148,19 +144,15 @@ const STRINGS = {
       proposals: '確認待ち'
     },
     note: {
-      edit: '編集',
       save: '保存',
-      saved: '保存済み',
       cancel: 'やめる',
       rev: '版',
       by_hermes: 'Hermes が書き換え',
       by_user: '自分で記入',
-      history: '履歴',
       restore: 'この版に戻す',
       sessions: 'この付箋を貼った会話',
       no_sessions: 'まだどの会話にも貼っていません。',
       deleted: '削除済み',
-      open: '開く',
       detach: '外す',
       delete: '付箋を削除',
       color: '色',
@@ -188,8 +180,6 @@ const EMPTY = { notes: [], pending: [], settings: {}, session_note_ids: [], upda
 const $data = atom(EMPTY)
 const $sessions = atom({}) // session id → { title, last_active, archived, exists }
 const $status = atom({ error: null, loaded: false })
-const $draft = atom({}) // note id → unsaved body
-const $busy = atom(null)
 
 let restCtx = null
 let queue = Promise.resolve()
@@ -676,7 +666,6 @@ function ComposerChips() {
 
 function NoteCard({ note, sid, compact }) {
   const sessions = useValue($sessions)
-  const busy = useValue($busy)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(note.body)
   const [nameDraft, setNameDraft] = useState(note.name)
@@ -822,7 +811,7 @@ function NoteCard({ note, sid, compact }) {
                 variant: 'ghost',
                 children: t('note.cancel')
               }),
-              jsx(Button, { disabled: Boolean(busy), onClick: save, size: 'xs', children: t('note.save') })
+              jsx(Button, { onClick: save, size: 'xs', children: t('note.save') })
             ]
           })
         : jsxs('div', {
