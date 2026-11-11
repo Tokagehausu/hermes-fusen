@@ -143,7 +143,14 @@ def _color(value: Any, default: str = DEFAULT_COLOR) -> str:
 
 
 def empty_state() -> dict[str, Any]:
-    return {"version": STATE_VERSION, "notes": {}, "settings": dict(DEFAULT_SETTINGS), "updated_at": 0.0}
+    return {
+        "version": STATE_VERSION,
+        "notes": {},
+        "settings": dict(DEFAULT_SETTINGS),
+        "updated_at": 0.0,
+        # Monotonic counter: ordering must not depend on clock resolution.
+        "seq": 0,
+    }
 
 
 def _settings(raw: Any) -> dict[str, Any]:
@@ -190,6 +197,7 @@ def _note(raw: Any) -> Optional[dict[str, Any]]:
     rev = int(raw.get("rev") or 1)
     return {
         "id": raw_id,
+        "seq": int(raw.get("seq") or 0),
         "name": _text(raw.get("name"), MAX_NAME) or "note",
         "color": _color(raw.get("color")),
         "body": body,
@@ -241,6 +249,12 @@ def normalize(raw: Any) -> dict[str, Any]:
         state["updated_at"] = float(raw.get("updated_at") or 0)
     except (TypeError, ValueError):
         state["updated_at"] = 0.0
+    try:
+        state["seq"] = int(raw.get("seq") or 0)
+    except (TypeError, ValueError):
+        state["seq"] = 0
+    # A file written before the counter existed, or hand-edited: derive it.
+    state["seq"] = max([state["seq"]] + [note["seq"] for note in state["notes"].values()])
 
     pending: dict[str, dict[str, Any]] = {}
     for value in raw.get("pending") or ():
@@ -337,7 +351,7 @@ def signature(state: dict[str, Any], sid: str) -> tuple[tuple[str, int], ...]:
 
 def notes_for(state: dict[str, Any], sid: str) -> list[dict[str, Any]]:
     notes = [note for note in state["notes"].values() if sid in note["sessions"]]
-    notes.sort(key=lambda note: (note["created_at"], note["id"]))
+    notes.sort(key=lambda note: (note["seq"], note["created_at"], note["id"]))
     return notes
 
 
@@ -347,7 +361,7 @@ def sessions_for(state: dict[str, Any], note: dict[str, Any]) -> list[str]:
 
 def payload(state: dict[str, Any], *, sid: str = "") -> dict[str, Any]:
     """The shape the desktop renders."""
-    notes = sorted(state["notes"].values(), key=lambda note: (note["created_at"], note["id"]))
+    notes = sorted(state["notes"].values(), key=lambda note: (note["seq"], note["created_at"], note["id"]))
     return {
         "version": STATE_VERSION,
         "settings": dict(state["settings"]),
@@ -385,8 +399,10 @@ def create(
     if not clean:
         raise StickyError("name is required")
     stamp = _now()
+    state["seq"] = int(state.get("seq") or 0) + 1
     note = {
         "id": new_note_id(),
+        "seq": state["seq"],
         "name": clean,
         "color": _color(color),
         "body": _text(body, MAX_BODY),
