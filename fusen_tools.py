@@ -5,8 +5,14 @@ it. The tool list is fixed at load, so turning rewriting on or off never changes
 what the model sees mid-conversation (that would invalidate the prefix cache);
 the switch only changes what ``fusen_write`` is allowed to do.
 
-``auto_edit`` off means writes become proposals the user confirms. The model is
-told so plainly in the result, so it does not claim a change it did not make.
+``auto_edit`` off (the default) means writes become proposals the user confirms,
+in the Desktop panel or with ``/fusenapply``. The model is told so plainly in the
+result, so it does not claim a change it did not make.
+
+The model cannot settle its own proposals: ``accept`` and ``discard`` are not in
+this tool's vocabulary, and ``auto_edit`` off makes ``revert`` a proposal too. A
+note reaches every conversation it is pinned to, so an injected turn that talks
+the model into a rewrite must not be able to land it without the user.
 """
 
 from __future__ import annotations
@@ -244,19 +250,19 @@ SCHEMA_WRITE = {
     "description": (
         "Rewrite a sticky note body, or revert it to an earlier revision. When the user has allowed "
         "automatic rewriting, the change is applied at once and every conversation carrying the note "
-        "sees it. When they have not, this files a PROPOSAL instead: the result says so, and the user "
-        "confirms it in the Fusen panel. Always pass expect_rev from what you last read, so a "
-        "note the user edited by hand is not silently overwritten."
+        "sees it. When they have not (the default), this files a PROPOSAL instead: the result says so, "
+        "and the user confirms it in the Fusen panel or with /fusenapply. You cannot confirm or dismiss "
+        "a proposal yourself. Always pass expect_rev from what you last read, so a note the user "
+        "edited by hand is not silently overwritten."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["write", "revert", "accept", "discard"], "description": "write = new body; revert = restore an earlier revision; accept/discard = settle a proposal."},
-            "note_id": {"type": "string", "description": "Which note (write/revert)."},
+            "action": {"type": "string", "enum": ["write", "revert"], "description": "write = new body; revert = restore an earlier revision."},
+            "note_id": {"type": "string", "description": "Which note."},
             "body": {"type": "string", "description": "The new body (write). Keep it close to the original: notes are the user's own words."},
             "expect_rev": {"type": "integer", "description": "The rev you read. A mismatch aborts instead of overwriting."},
             "rev": {"type": "integer", "description": "For revert: which stored revision to restore. Omit for the previous one."},
-            "pending_id": {"type": "string", "description": "For accept/discard."},
             "reason": {"type": "string", "description": "One line on why the body changed; shown to the user."},
         },
         "required": ["action"],
@@ -273,27 +279,46 @@ def fusen_write(args: dict[str, Any], **kwargs: Any) -> str:
         except fusen_store.FusenError:
             sid = str(kwargs.get("session_id") or "")
 
-        if action == "accept":
-            pending_id = str(args.get("pending_id") or "")
-            state, note = fusen_store.mutate(lambda current: fusen_store.accept(current, pending_id))
-            fusen_inject.mark_dirty(sid)
-            return _json({"ok": True, "applied": True, "note": _brief(note)})
-
-        if action == "discard":
-            pending_id = str(args.get("pending_id") or "")
-            state, _ = fusen_store.mutate(lambda current: fusen_store.discard(current, pending_id))
-            return _json({"ok": True, "applied": False, "discarded": pending_id})
+        if action in ("accept", "discard"):
+            # Settling a proposal is the user's move, in the panel or with /fusenapply.
+            return _fail(
+                "the model cannot accept or discard a proposal; the user settles it in the Fusen panel "
+                "or with /fusenapply and /fusendismiss"
+            )
 
         note_id = fusen_store.note_id(args.get("note_id"))
+        auto = bool(fusen_store.load()["settings"]["auto_edit"])
 
         if action == "revert":
             target = args.get("rev")
-            state, note = fusen_store.mutate(lambda current: fusen_store.revert(current, note_id, target))
-            fusen_inject.mark_dirty(sid)
-            return _json({"ok": True, "applied": True, "note": _brief(note), "body": note["body"]})
+            if auto:
+                state, note = fusen_store.mutate(lambda current: fusen_store.revert(current, note_id, target))
+                fusen_inject.mark_dirty(sid)
+                return _json({"ok": True, "applied": True, "note": _brief(note), "body": note["body"]})
+            # Automatic rewriting is off: rolling a note back is a rewrite too, so propose it.
+            state = fusen_store.load()
+            earlier = fusen_store.revert_target(state, note_id, target)
+            reason = args.get("reason") or f"revert to rev {earlier['rev']}"
+            state, entry = fusen_store.mutate(
+                lambda current: fusen_store.propose(current, note_id, earlier["body"], reason=str(reason)[:200], sid=sid)
+            )
+            note = state["notes"].get(note_id) or {}
+            return _json(
+                {
+                    "ok": True,
+                    "applied": False,
+                    "proposed": True,
+                    "pending_id": entry["id"],
+                    "note": _brief(note),
+                    "message": (
+                        "Automatic rewriting is off, so the revert is a proposal too. It is waiting for the "
+                        "user in the Fusen panel (or /fusenapply); do not describe the note as rolled back."
+                    ),
+                }
+            )
 
         if action != "write":
-            return _fail("action must be write, revert, accept or discard")
+            return _fail("action must be write or revert")
 
         body = str(args.get("body") or "")
         if not body.strip():
@@ -303,7 +328,6 @@ def fusen_write(args: dict[str, Any], **kwargs: Any) -> str:
         note = state["notes"].get(note_id)
         if not note:
             return _fail("note not found")
-        auto = bool(state["settings"]["auto_edit"])
 
         if auto:
             expect = args.get("expect_rev")

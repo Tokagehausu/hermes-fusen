@@ -2,7 +2,11 @@
 
 The keyboard path, for when the desktop is not the surface. Same store, same
 rules: the user typing here always counts as the user, so ``/fusenedit`` writes
-even when automatic rewriting is off.
+even when automatic rewriting is off, and ``/fusenapply`` / ``/fusendismiss``
+settle the proposals Hermes filed. The model's own tool can do neither.
+
+Text comes from ``fusen_i18n``: English by default, Japanese when Hermes itself
+is set to Japanese.
 """
 
 from __future__ import annotations
@@ -11,20 +15,25 @@ import logging
 from typing import Any
 
 from . import fusen_inject, fusen_store
+from .fusen_i18n import msg
 
 logger = logging.getLogger(__name__)
 
-USAGE = (
-    "付箋: /fusen で一覧、/fusen <名前> でこの会話に貼る、"
-    "/unfusen <名前|id> で外す、/fusenedit <本文> で書き換え、/fusenundo でひとつ戻す"
-)
+
+def _item(note_or_entry_id: str, name: str) -> str:
+    return msg("item", id=note_or_entry_id, name=name)
+
+
+def _excerpt(text: str, limit: int = 60) -> str:
+    flat = " ".join(str(text or "").split())
+    return flat[:limit] + (" …" if len(flat) > limit else "")
 
 
 def _find(state: dict[str, Any], token: str) -> dict[str, Any]:
     """A note by id, else by exact name (case-insensitive), else by unique prefix."""
     token = token.strip()
     if not token:
-        raise fusen_store.FusenError("付箋の名前かidを指定してください")
+        raise fusen_store.FusenError(msg("err.need_name"))
     note = state["notes"].get(token)
     if note:
         return note
@@ -33,144 +42,216 @@ def _find(state: dict[str, Any], token: str) -> dict[str, Any]:
     if len(by_name) == 1:
         return by_name[0]
     if len(by_name) > 1:
-        raise fusen_store.FusenError(f"「{token}」という名前の付箋が複数あります。id で指定してください")
+        raise fusen_store.FusenError(msg("err.ambiguous", token=token))
     by_prefix = [item for item in state["notes"].values() if item["id"].startswith(token)]
     if len(by_prefix) == 1:
         return by_prefix[0]
-    raise fusen_store.FusenError(f"「{token}」という付箋はありません")
+    raise fusen_store.FusenError(msg("err.not_found", token=token))
 
 
 def _sid(session_id: str) -> str:
     if not session_id:
-        raise fusen_store.FusenError("この会話のidが取れませんでした")
+        raise fusen_store.FusenError(msg("err.no_session"))
     return fusen_store.session_key(session_id)
 
 
-def fusen_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
+def _pending_here(state: dict[str, Any], sid: str) -> list[dict[str, Any]]:
+    """Proposals waiting on the notes this conversation carries."""
+    ids = {note["id"] for note in fusen_store.notes_for(state, sid)}
+    return [entry for entry in state.get("pending") or () if entry["note_id"] in ids]
+
+
+def _note_name(state: dict[str, Any], note_id: str) -> str:
+    note = state["notes"].get(note_id)
+    return note["name"] if note else note_id
+
+
+def _guard(name: str, fn, *args: Any, **kwargs: Any) -> str:
+    """Run a command body; a store error becomes text, never a traceback."""
     try:
-        sid = _sid(session_id)
-        token = (raw_args or "").strip()
-        state = fusen_store.load()
-
-        if not token:
-            notes = fusen_store.notes_for(state, sid)
-            if not notes:
-                return f"この会話に付箋はありません。\n{USAGE}"
-            lines = [f"この会話の付箋 {len(notes)}枚:"]
-            for note in notes:
-                mark = " · Hermes書き換え可" if state["settings"]["auto_edit"] else " · 提案のみ"
-                lines.append(f"  {note['id']}「{note['name']}」rev {note['rev']}{mark}")
-                if note["body"]:
-                    lines.append(f"    {note['body'][:120]}")
-            return "\n".join(lines)
-
-        # An existing note: pin it here.
-        try:
-            note = _find(state, token)
-        except fusen_store.FusenError:
-            note = None
-
-        if note:
-            state, _ = fusen_store.mutate(lambda current: fusen_store.attach(current, note["id"], sid))
-            fusen_inject.mark_dirty(sid)
-            here = len(fusen_store.notes_for(state, sid))
-            return f"「{note['name']}」({note['id']}) をこの会話に貼りました。この会話の付箋は{here}枚。"
-
-        state, updated = fusen_store.mutate(lambda current: fusen_store.create(current, name=token, pin_to=sid))
-        fusen_inject.mark_dirty(sid)
-        return f"付箋「{updated['name']}」({updated['id']}) を作ってこの会話に貼りました。/fusenedit で本文を書けます。"
+        return fn(*args, **kwargs)
     except fusen_store.FusenError as exc:
         return f"{exc}"
     except Exception as exc:
-        logger.warning("fusen command failed", exc_info=True)
-        return f"失敗しました: {type(exc).__name__}: {exc}"
+        logger.warning("%s command failed", name, exc_info=True)
+        return msg("failed", error=f"{type(exc).__name__}: {exc}")
+
+
+# ── /fusen ───────────────────────────────────────────────────────────────
+
+
+def _fusen(raw_args: str, session_id: str) -> str:
+    sid = _sid(session_id)
+    token = (raw_args or "").strip()
+    state = fusen_store.load()
+
+    if not token:
+        notes = fusen_store.notes_for(state, sid)
+        if not notes:
+            return f"{msg('none_here')}\n{msg('usage')}"
+        mark = msg("mark_auto") if state["settings"]["auto_edit"] else msg("mark_propose")
+        lines = [msg("list_header", count=len(notes))]
+        for note in notes:
+            lines.append(msg("list_row", id=note["id"], name=note["name"], rev=note["rev"], mark=mark))
+            if note["body"]:
+                lines.append(f"    {note['body'][:120]}")
+        waiting = _pending_here(state, sid)
+        if waiting:
+            lines.append(msg("pending_header", count=len(waiting)))
+            for entry in waiting:
+                lines.append(
+                    msg(
+                        "pending_row",
+                        id=entry["id"],
+                        name=_note_name(state, entry["note_id"]),
+                        excerpt=_excerpt(entry["body"]),
+                    )
+                )
+            lines.append(msg("pending_hint"))
+        return "\n".join(lines)
+
+    # An existing note: pin it here.
+    try:
+        note = _find(state, token)
+    except fusen_store.FusenError:
+        note = None
+
+    if note:
+        state, _ = fusen_store.mutate(lambda current: fusen_store.attach(current, note["id"], sid))
+        fusen_inject.mark_dirty(sid)
+        here = len(fusen_store.notes_for(state, sid))
+        return msg("pinned", name=note["name"], id=note["id"], count=here)
+
+    state, created = fusen_store.mutate(lambda current: fusen_store.create(current, name=token, pin_to=sid))
+    fusen_inject.mark_dirty(sid)
+    return msg("created", name=created["name"], id=created["id"])
+
+
+def fusen_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
+    return _guard("fusen", _fusen, raw_args, session_id)
+
+
+# ── /unfusen ─────────────────────────────────────────────────────────────
+
+
+def _unfusen(raw_args: str, session_id: str) -> str:
+    sid = _sid(session_id)
+    token = (raw_args or "").strip()
+    state = fusen_store.load()
+    notes = fusen_store.notes_for(state, sid)
+    if not notes:
+        return msg("none_here")
+
+    if not token:
+        if len(notes) != 1:
+            listing = " / ".join(_item(note["id"], note["name"]) for note in notes)
+            return msg("which_unpin", listing=listing)
+        target = notes[0]
+    else:
+        target = _find(state, token)
+
+    fusen_store.mutate(lambda current: fusen_store.detach(current, target["id"], sid))
+    fusen_inject.mark_dirty(sid)
+    return msg("unpinned", name=target["name"])
 
 
 def unfusen_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
-    try:
-        sid = _sid(session_id)
-        token = (raw_args or "").strip()
-        state = fusen_store.load()
-        notes = fusen_store.notes_for(state, sid)
-        if not notes:
-            return "この会話に付箋はありません。"
+    return _guard("unfusen", _unfusen, raw_args, session_id)
 
-        if not token:
-            if len(notes) == 1:
-                target = notes[0]
-            else:
-                listing = " / ".join(f"{note['id']}「{note['name']}」" for note in notes)
-                return f"どの付箋を外しますか: {listing}"
-        else:
-            target = _find(state, token)
 
-        state, _ = fusen_store.mutate(lambda current: fusen_store.detach(current, target["id"], sid))
-        fusen_inject.mark_dirty(sid)
-        return f"「{target['name']}」をこの会話から外しました。付箋そのものは残っています。"
-    except fusen_store.FusenError as exc:
-        return f"{exc}"
-    except Exception as exc:
-        logger.warning("unfusen command failed", exc_info=True)
-        return f"失敗しました: {type(exc).__name__}: {exc}"
+# ── /fusenedit ───────────────────────────────────────────────────────────
+
+
+def _fusenedit(raw_args: str, session_id: str) -> str:
+    sid = _sid(session_id)
+    text = (raw_args or "").strip()
+    if not text:
+        return msg("edit_need_text")
+    state = fusen_store.load()
+    notes = fusen_store.notes_for(state, sid)
+    if not notes:
+        return msg("edit_no_notes")
+
+    note = sorted(notes, key=lambda item: item["updated_at"], reverse=True)[0]
+    if len(notes) > 1:
+        explicit = None
+        for candidate in notes:
+            for prefix in (candidate["id"], candidate["name"]):
+                if text.startswith(prefix + " "):
+                    explicit = (candidate, text[len(prefix) + 1 :].strip())
+                    break
+            if explicit:
+                break
+        if not explicit:
+            listing = " / ".join(_item(item["id"], item["name"]) for item in notes)
+            return msg("edit_ambiguous", name=note["name"], listing=listing, id=note["id"], text=text[:40])
+        note, text = explicit
+        if not text:
+            return msg("edit_empty")
+
+    state, updated = fusen_store.mutate(lambda current: fusen_store.set_body(current, note["id"], text, author="user"))
+    fusen_inject.mark_dirty(sid)
+    return msg("edited", name=updated["name"], rev=updated["rev"], count=len(updated["sessions"]))
 
 
 def fusenedit_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
-    try:
-        sid = _sid(session_id)
-        text = (raw_args or "").strip()
-        if not text:
-            return "本文を指定してください: /fusenedit 調査メモはここまで"
-        state = fusen_store.load()
-        notes = fusen_store.notes_for(state, sid)
-        if not notes:
-            return "この会話に付箋がありません。先に /fusen <名前> で貼ってください。"
+    return _guard("fusenedit", _fusenedit, raw_args, session_id)
 
-        notes_sorted = sorted(notes, key=lambda note: note["updated_at"], reverse=True)
-        note = notes_sorted[0]
-        if len(notes) > 1:
-            explicit = None
-            for candidate in notes:
-                for prefix in (candidate["id"], candidate["name"]):
-                    if text.startswith(prefix + " "):
-                        explicit = (candidate, text[len(prefix) + 1 :].strip())
-                        break
-                if explicit:
-                    break
-            if explicit:
-                note, text = explicit
-            else:
-                preview = " / ".join(f"{item['id']}「{item['name']}」" for item in notes)
-                return (
-                    f"付箋が複数あります。いまは「{note['name']}」を書き換えます。"
-                    f"別の付箋なら id を頭に付けてください: {preview}\n例: /fusenedit {note['id']} {text[:40]}"
-                )
-            if not text:
-                return "本文が空です。"
 
-        state, updated = fusen_store.mutate(lambda current: fusen_store.set_body(current, note["id"], text, author="user"))
-        fusen_inject.mark_dirty(sid)
-        return f"「{updated['name']}」を rev {updated['rev']} に書き換えました（この付箋が付いた{len(updated['sessions'])}件の会話に反映されます）。"
-    except fusen_store.FusenError as exc:
-        return f"{exc}"
-    except Exception as exc:
-        logger.warning("fusenedit command failed", exc_info=True)
-        return f"失敗しました: {type(exc).__name__}: {exc}"
+# ── /fusenundo ───────────────────────────────────────────────────────────
+
+
+def _fusenundo(raw_args: str, session_id: str) -> str:
+    sid = _sid(session_id)
+    state = fusen_store.load()
+    notes = fusen_store.notes_for(state, sid)
+    if not notes:
+        return msg("edit_no_notes")
+    token = (raw_args or "").strip()
+    target = _find(state, token) if token else sorted(notes, key=lambda item: item["updated_at"], reverse=True)[0]
+    state, note = fusen_store.mutate(lambda current: fusen_store.revert(current, target["id"]))
+    fusen_inject.mark_dirty(sid)
+    return msg("undone", name=note["name"], rev=note["rev"])
 
 
 def fusenundo_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
-    try:
-        sid = _sid(session_id)
-        state = fusen_store.load()
-        notes = fusen_store.notes_for(state, sid)
-        if not notes:
-            return "この会話に付箋がありません。"
-        token = (raw_args or "").strip()
-        target = _find(state, token) if token else sorted(notes, key=lambda item: item["updated_at"], reverse=True)[0]
-        state, note = fusen_store.mutate(lambda current: fusen_store.revert(current, target["id"]))
-        fusen_inject.mark_dirty(sid)
-        return f"「{note['name']}」を rev {note['rev']} に戻しました。"
-    except fusen_store.FusenError as exc:
-        return f"{exc}"
-    except Exception as exc:
-        logger.warning("fusenundo command failed", exc_info=True)
-        return f"失敗しました: {type(exc).__name__}: {exc}"
+    return _guard("fusenundo", _fusenundo, raw_args, session_id)
+
+
+# ── /fusenapply, /fusendismiss — the user settles Hermes' proposals ─────
+
+
+def _settle(raw_args: str, session_id: str, *, apply: bool) -> str:
+    sid = _sid(session_id)
+    token = (raw_args or "").strip()
+    state = fusen_store.load()
+
+    if token:
+        entry = next((item for item in state.get("pending") or () if item["id"] == token), None)
+        if entry is None:
+            raise fusen_store.FusenError(msg("err.proposal_not_found", token=token))
+    else:
+        waiting = _pending_here(state, sid)
+        if not waiting:
+            return msg("no_proposals")
+        if len(waiting) > 1:
+            listing = " / ".join(_item(item["id"], _note_name(state, item["note_id"])) for item in waiting)
+            return msg("which_proposal", listing=listing)
+        entry = waiting[0]
+
+    name = _note_name(state, entry["note_id"])
+    if not apply:
+        fusen_store.mutate(lambda current: fusen_store.discard(current, entry["id"]))
+        return msg("dismissed", name=name)
+
+    state, note = fusen_store.mutate(lambda current: fusen_store.accept(current, entry["id"]))
+    fusen_inject.mark_dirty(sid)
+    return msg("applied", name=note["name"], rev=note["rev"])
+
+
+def fusenapply_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
+    return _guard("fusenapply", _settle, raw_args, session_id, apply=True)
+
+
+def fusendismiss_command(raw_args: str = "", session_id: str = "", **_: Any) -> str:
+    return _guard("fusendismiss", _settle, raw_args, session_id, apply=False)

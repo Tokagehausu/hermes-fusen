@@ -11,7 +11,8 @@ one note ──┬── chat "pricing page rewrite"
 ```
 
 Rewrite the body once and every chat that carries the note sees it. Hermes can
-rewrite it too — with your permission, with a revision history, and with undo.
+rewrite it too — but only as a **proposal you apply**, with a revision history and
+undo. Automatic rewriting is off until you turn it on.
 
 ---
 
@@ -41,7 +42,7 @@ Comparing with the closest catalog entries:
 | one note on **many** chats, one body | ✓ | — | — | — | — |
 | injected into the model's turn | ✓ | ✓ | — (agent reads on demand) | — | — |
 | injected only when the model's view is stale | ✓ | — (every turn) | n/a | n/a | n/a |
-| model can rewrite it, with approval | ✓ | — (pins/drops without asking) | ✓ | — | — |
+| model can rewrite it — as a proposal you apply | ✓ (default) | — (pins/drops without asking) | ✓ | — | — |
 | find other chats by the same note | ✓ | — | — | — | — |
 
 ## Install
@@ -65,11 +66,17 @@ panel does the same, and `/fusen <name>` does it from the keyboard.
 **Rewrite it.** Click the body and type. `⌘↵` saves. Every chat carrying the note
 sees the new text on its next turn.
 
-**Ask Hermes to rewrite it.** Say "tighten this note". With *Let Hermes rewrite
-note bodies* on, it edits in place and the panel shows `rev 3 · Hermes`. With it
-off, Hermes can only file a **proposal**: it appears at the top of the panel with
-*Apply* / *Dismiss*, and nothing changes until you press one. Either way, every
-revision is kept, and `History` restores any of them.
+**Ask Hermes to rewrite it.** Say "tighten this note". By default Hermes files a
+**proposal**: it appears at the top of the panel with *Apply* / *Dismiss* (or
+`/fusenapply` / `/fusendismiss`), and nothing changes until you press one. Turn on
+*Let Hermes rewrite note bodies* and it edits in place instead; the panel then
+shows `rev 3 · Hermes`. Either way, every revision is kept, and `History` restores
+any of them.
+
+The model cannot settle its own proposal, and with automatic rewriting off a
+*revert* is a proposal too. That matters because a note is injected into every
+conversation it is pinned to: one turn talked into a rewrite must not be able to
+write into your other chats without you.
 
 **Start a chat with a note.** Panel → pin icon on a note → *New chat with this
 note*. Hermes opens a draft; the first message you send gets the note attached.
@@ -86,6 +93,11 @@ or open the panel and click one of the chats under the note.
 | `/unfusen <name\|id>` | unpin (the note itself survives) |
 | `/fusenedit <text>` | rewrite the body (all pinned chats follow) |
 | `/fusenundo` | roll back one revision |
+| `/fusenapply [id]` | apply a proposal Hermes filed |
+| `/fusendismiss [id]` | dismiss it |
+
+Command help and output are English by default and Japanese when Hermes itself is
+set to Japanese (`display.language` / `HERMES_LANGUAGE`).
 
 ### Tools
 
@@ -93,7 +105,7 @@ or open the panel and click one of the chats under the note.
 |---|---|
 | `fusen_notes` | `list` this chat's notes / `get` one / `search` the chats sharing a note or notes by text / `read` a chat's messages |
 | `fusen_pin` | `attach` / `detach` a note on a chat |
-| `fusen_write` | `write` the body (applies or files a proposal), `revert`, `accept`, `discard` |
+| `fusen_write` | `write` the body (applies, or files a proposal), `revert`. It cannot `accept`/`discard`: the user settles proposals |
 
 ## How the injection keeps your cache intact
 
@@ -123,7 +135,7 @@ is noticed without polling, and the cost of a repeat read is one `stat()`.
 
 | key | default | meaning |
 |---|---|---|
-| `auto_edit` | on | Hermes may rewrite bodies directly. Off = proposals only. |
+| `auto_edit` | **off** | Off: Hermes files proposals, you apply them. On: it rewrites bodies directly. |
 | `inject` | `auto` | `auto` / `always` / `off` — when the notes reach the model. |
 | `max_chars` | 400 | characters per note in the injected block |
 | `max_notes_per_session` | 5 | notes one chat may carry |
@@ -143,6 +155,9 @@ is noticed without polling, and the cost of a repeat read is one `stat()`.
   plugin API (`pre_llm_call`, `post_compaction`, `on_session_delete`,
   `register_tool`, `register_command`, `register_hook`, `dispatch_tool`,
   session row slot, `composer.top`, panes, routes, palette, status bar, i18n).
+  The Python side reads `display.language` through `hermes_cli.config`; the state
+  directory is `plugin_data_dir("fusen")` (`<hermes home>/plugin-data/fusen`,
+  per profile) with no fallback path of its own.
 
 ## Known limits
 
@@ -169,16 +184,17 @@ fusen/
 ├── fusen_store.py        # state, revisions, proposals, the ops batch
 ├── fusen_inject.py       # pre_llm_call gate + compaction/delete hooks
 ├── fusen_tools.py        # the three tools
-├── fusen_commands.py     # /fusen family
+├── fusen_commands.py     # /fusen family (the user settles proposals here)
+├── fusen_i18n.py         # command text: English default, Japanese translation
 ├── dashboard/
 │   ├── manifest.json      # mounts the REST router
 │   └── plugin_api.py      # /state, /ops, /arm
 ├── desktop/plugin.js      # the desktop half (plain ESM, no build)
-└── tests/test_fusen.py   # 49 tests, stdlib only
+└── tests/test_fusen.py   # 57 tests, stdlib only
 ```
 
 ```bash
-python -m unittest discover -s tests       # 49 tests, stdlib only
+python -m unittest discover -s tests       # 57 tests, stdlib only
 node tools/check-i18n.mjs desktop/plugin.js  # every t('…') key exists in en and ja
 hermes plugins validate .
 ```

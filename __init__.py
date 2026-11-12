@@ -5,7 +5,8 @@ Three halves, one store:
   * the agent turn — ``inject.pre_llm_call`` puts the pinned notes in front of
     the model, on the turns where its view is actually stale (see
     ``fusen_inject.py``);
-  * the agent's hands — three tools plus ``/fusen`` family commands;
+  * the agent's hands — three tools plus the ``/fusen`` family of commands (the user
+    settles proposals there; the tools cannot);
   * the desktop — ``desktop/plugin.js`` over the routes in
     ``dashboard/plugin_api.py``.
 
@@ -19,12 +20,13 @@ from typing import Any
 
 from . import fusen_commands as commands
 from . import fusen_inject as inject
+from . import fusen_i18n as i18n
 from . import fusen_store as store
 from . import fusen_tools as tools
 
 log = logging.getLogger(__name__)
 
-__version__ = "0.1.0"
+__version__ = "1.1.0"
 
 
 def register(ctx: Any) -> None:
@@ -53,29 +55,20 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_compaction", inject.post_compaction)
     ctx.register_hook("on_session_delete", inject.on_session_delete)
 
-    ctx.register_command(
-        "fusen",
-        commands.fusen_command,
-        description="付箋を貼る・一覧する（名前なしでこの会話の付箋）",
-        args_hint="付箋の名前",
-    )
-    ctx.register_command(
-        "unfusen",
-        commands.unfusen_command,
-        description="この会話から付箋を外す（付箋そのものは残ります）",
-        args_hint="付箋の名前かid",
-    )
-    ctx.register_command(
-        "fusenedit",
-        commands.fusenedit_command,
-        description="付箋の本文を書き換える（全部の会話に反映）",
-        args_hint="本文",
-    )
-    ctx.register_command(
-        "fusenundo",
-        commands.fusenundo_command,
-        description="付箋をひとつ前の版に戻す",
-        args_hint="付箋の名前かid",
-    )
+    # English is the default; fusen_i18n swaps in Japanese when Hermes itself is Japanese.
+    for name, handler, key in (
+        ("fusen", commands.fusen_command, "cmd.fusen"),
+        ("unfusen", commands.unfusen_command, "cmd.unfusen"),
+        ("fusenedit", commands.fusenedit_command, "cmd.fusenedit"),
+        ("fusenundo", commands.fusenundo_command, "cmd.fusenundo"),
+        ("fusenapply", commands.fusenapply_command, "cmd.fusenapply"),
+        ("fusendismiss", commands.fusendismiss_command, "cmd.fusendismiss"),
+    ):
+        ctx.register_command(
+            name,
+            handler,
+            description=i18n.msg(key),
+            args_hint=i18n.msg(f"{key}.hint"),
+        )
 
     log.debug("fusen registered (store: %s)", store.state_path())

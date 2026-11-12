@@ -11,12 +11,12 @@ after the first push (`sha` must be the full 40-character commit SHA, not a tag)
 name: fusen
 repo: https://github.com/Tokagehausu/hermes-fusen
 sha: '<40-char-sha>'
-description: 'Fusen (付箋, Japanese for sticky note) are notes pinned to conversations: one editable body shared by every chat it is pinned to, handed to the model only when its view is stale, and rewriteable by Hermes with your approval.'
+description: 'Fusen (付箋, Japanese for sticky note) are notes pinned to conversations: one editable body shared by every chat it is pinned to, handed to the model only when its view is stale, and rewriteable only when you allow it — by default Hermes can merely propose a rewrite, and you apply or dismiss it.'
 maintainer: Tokagehausu
 tier: community
 category: desktop
 requires_hermes: '>=0.22.5'
-version: '0.1.0'
+version: '1.1.0'
 title: 'Fusen'
 readme: true
 capabilities:
@@ -69,7 +69,7 @@ titles come from `session.list`, message text from `session_search`.
 External communication: none. Local files: one JSON file under
 `plugin_data_dir("fusen")`. Details in the README.
 
-`hermes plugins validate .` passes with no warnings. 49 unit tests
+`hermes plugins validate .` passes with no warnings. 57 unit tests
 (`python -m unittest discover -s tests`).
 ```
 
@@ -92,7 +92,7 @@ injected only when the model's stale. Plugin for @NousResearch Hermes.`
 ## 4. Checklist
 
 - [x] `hermes plugins validate .` — passes, no warnings
-- [x] 49 unit tests
+- [x] 57 unit tests
 - [x] README: install, usage, cache behaviour, settings, disclosures, limits
 - [x] MIT licence, `.gitignore`
 - [ ] local `git init` + first commit → real SHA

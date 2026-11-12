@@ -24,9 +24,9 @@ if "fusen" not in sys.modules:
     sys.modules["fusen"] = _module
     _spec.loader.exec_module(_module)
 
-from fusen import fusen_commands, fusen_inject, fusen_store, fusen_tools  # noqa: E402
+from fusen import fusen_commands, fusen_i18n, fusen_inject, fusen_store, fusen_tools  # noqa: E402
 
-commands, inject, store, tools = fusen_commands, fusen_inject, fusen_store, fusen_tools
+commands, i18n, inject, store, tools = fusen_commands, fusen_i18n, fusen_inject, fusen_store, fusen_tools
 
 SID_A = "20261105_113540_68ca42"
 SID_B = "20261104_090000_aaa111"
@@ -34,6 +34,7 @@ SID_B = "20261104_090000_aaa111"
 
 class StoreCase(unittest.TestCase):
     def setUp(self) -> None:
+        fusen_i18n.set_language("en")  # a dev box may be set to Japanese; tests are not
         self.tmp = tempfile.mkdtemp(prefix="fusen-test-")
         fusen_store.set_data_dir(self.tmp)
         fusen_store.invalidate()
@@ -50,7 +51,8 @@ class StoreCase(unittest.TestCase):
     def test_empty_state_has_defaults(self) -> None:
         state = fusen_store.load()
         self.assertEqual(state["notes"], {})
-        self.assertTrue(state["settings"]["auto_edit"])
+        # Approval is the default: Hermes files proposals until the user opts in.
+        self.assertFalse(state["settings"]["auto_edit"])
         self.assertEqual(state["settings"]["inject"], "auto")
         self.assertEqual(state["settings"]["max_notes_per_session"], 5)
 
@@ -209,6 +211,7 @@ class StoreCase(unittest.TestCase):
 
 class InjectCase(unittest.TestCase):
     def setUp(self) -> None:
+        fusen_i18n.set_language("en")
         self.tmp = tempfile.mkdtemp(prefix="fusen-inject-")
         fusen_store.set_data_dir(self.tmp)
         fusen_store.invalidate()
@@ -289,6 +292,7 @@ class InjectCase(unittest.TestCase):
 
 class ToolCase(unittest.TestCase):
     def setUp(self) -> None:
+        fusen_i18n.set_language("en")
         self.tmp = tempfile.mkdtemp(prefix="fusen-tools-")
         fusen_store.set_data_dir(self.tmp)
         fusen_store.invalidate()
@@ -308,7 +312,7 @@ class ToolCase(unittest.TestCase):
         out = json.loads(fusen_tools.fusen_notes({"action": "list"}, session_id=SID_A))
         self.assertTrue(out["ok"])
         self.assertEqual(out["notes"][0]["name"], "調査メモ")
-        self.assertTrue(out["auto_edit"])
+        self.assertFalse(out["auto_edit"])
 
     def test_search_finds_the_other_conversations(self) -> None:
         fusen_store.apply_ops([{"op": "attach", "note_id": self.note["id"], "session_id": SID_B}])
@@ -322,6 +326,7 @@ class ToolCase(unittest.TestCase):
         self.assertEqual(self.ctx.calls[-1][1], {"session_id": SID_B})
 
     def test_write_applies_when_auto_edit_is_on(self) -> None:
+        fusen_store.apply_ops([{"op": "settings", "patch": {"auto_edit": True}}])
         out = json.loads(
             fusen_tools.fusen_write(
                 {"action": "write", "note_id": self.note["id"], "body": "更新した", "expect_rev": 1},
@@ -331,8 +336,7 @@ class ToolCase(unittest.TestCase):
         self.assertTrue(out["applied"])
         self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["body"], "更新した")
 
-    def test_write_becomes_a_proposal_when_off(self) -> None:
-        fusen_store.apply_ops([{"op": "settings", "patch": {"auto_edit": False}}])
+    def test_write_becomes_a_proposal_by_default(self) -> None:
         out = json.loads(
             fusen_tools.fusen_write({"action": "write", "note_id": self.note["id"], "body": "案"}, session_id=SID_A)
         )
@@ -340,6 +344,43 @@ class ToolCase(unittest.TestCase):
         self.assertFalse(out["applied"])
         self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["body"], "途中まで")
         self.assertEqual(len(fusen_store.load()["pending"]), 1)
+
+    def test_the_tool_cannot_settle_its_own_proposal(self) -> None:
+        """A turn that was talked into a rewrite must not be able to land it."""
+        out = json.loads(
+            fusen_tools.fusen_write({"action": "write", "note_id": self.note["id"], "body": "案"}, session_id=SID_A)
+        )
+        pending_id = out["pending_id"]
+
+        for action in ("accept", "discard"):
+            refused = json.loads(
+                fusen_tools.fusen_write({"action": action, "pending_id": pending_id}, session_id=SID_A)
+            )
+            self.assertFalse(refused["ok"])
+            self.assertIn("panel", refused["error"])
+
+        state = fusen_store.load()
+        self.assertEqual(state["notes"][self.note["id"]]["body"], "途中まで")
+        self.assertEqual(len(state["pending"]), 1)
+
+    def test_revert_is_a_proposal_when_auto_edit_is_off(self) -> None:
+        fusen_store.apply_ops([{"op": "set_body", "note_id": self.note["id"], "body": "二番目"}])
+        out = json.loads(
+            fusen_tools.fusen_write({"action": "revert", "note_id": self.note["id"]}, session_id=SID_A)
+        )
+        self.assertTrue(out["proposed"])
+        self.assertFalse(out["applied"])
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["body"], "二番目")
+        self.assertEqual(len(fusen_store.load()["pending"]), 1)
+
+    def test_revert_applies_when_auto_edit_is_on(self) -> None:
+        fusen_store.apply_ops([{"op": "settings", "patch": {"auto_edit": True}}])
+        fusen_store.apply_ops([{"op": "set_body", "note_id": self.note["id"], "body": "二番目"}])
+        out = json.loads(
+            fusen_tools.fusen_write({"action": "revert", "note_id": self.note["id"]}, session_id=SID_A)
+        )
+        self.assertTrue(out["applied"])
+        self.assertEqual(fusen_store.load()["notes"][self.note["id"]]["body"], "途中まで")
 
     def test_pin_and_unpin(self) -> None:
         out = json.loads(fusen_tools.fusen_pin({"action": "attach", "note_id": self.note["id"]}, session_id=SID_B))
@@ -355,6 +396,7 @@ class ToolCase(unittest.TestCase):
 
 class CommandCase(unittest.TestCase):
     def setUp(self) -> None:
+        fusen_i18n.set_language("en")
         self.tmp = tempfile.mkdtemp(prefix="fusen-cmd-")
         fusen_store.set_data_dir(self.tmp)
         fusen_store.invalidate()
@@ -374,7 +416,17 @@ class CommandCase(unittest.TestCase):
         fusen_commands.fusen_command("買い物", session_id=SID_A)
         out = fusen_commands.fusen_command("", session_id=SID_A)
         self.assertIn("買い物", out)
+        self.assertIn("Notes on this chat (1)", out)
+        self.assertIn("proposals only", out)
+
+    def test_output_is_japanese_when_hermes_is_japanese(self) -> None:
+        fusen_i18n.set_language("ja")
+        fusen_commands.fusen_command("買い物", session_id=SID_A)
+        out = fusen_commands.fusen_command("", session_id=SID_A)
         self.assertIn("付箋 1枚", out)
+        self.assertIn("提案のみ", out)
+        fusen_commands.unfusen_command("", session_id=SID_A)
+        self.assertIn("この会話に付箋はありません", fusen_commands.fusen_command("", session_id=SID_A))
 
     def test_fusenedit_writes_the_body(self) -> None:
         fusen_commands.fusen_command("買い物", session_id=SID_A)
@@ -392,11 +444,40 @@ class CommandCase(unittest.TestCase):
         self.assertEqual(len(state["notes"]), 1)
 
     def test_commands_need_a_session(self) -> None:
-        self.assertIn("会話", fusen_commands.fusen_command("x", session_id=""))
+        self.assertIn("chat", fusen_commands.fusen_command("x", session_id=""))
+
+    def test_the_user_settles_a_proposal_from_the_keyboard(self) -> None:
+        fusen_commands.fusen_command("買い物", session_id=SID_A)
+        note = fusen_store.notes_for(fusen_store.load(), SID_A)[0]
+        fusen_store.mutate(lambda current: fusen_store.propose(current, note["id"], "卵と牛乳"))
+
+        listing = fusen_commands.fusen_command("", session_id=SID_A)
+        self.assertIn("Waiting for you (1)", listing)
+
+        out = fusen_commands.fusenapply_command("", session_id=SID_A)
+        self.assertIn("rev 2", out)
+        self.assertEqual(fusen_store.notes_for(fusen_store.load(), SID_A)[0]["body"], "卵と牛乳")
+        self.assertEqual(fusen_store.load()["pending"], [])
+
+    def test_dismiss_leaves_the_body_alone(self) -> None:
+        fusen_commands.fusen_command("買い物", session_id=SID_A)
+        note = fusen_store.notes_for(fusen_store.load(), SID_A)[0]
+        fusen_store.mutate(lambda current: fusen_store.propose(current, note["id"], "案"))
+        fusen_commands.fusendismiss_command("", session_id=SID_A)
+
+        state = fusen_store.load()
+        self.assertEqual(state["pending"], [])
+        self.assertEqual(state["notes"][note["id"]]["body"], "")
 
 
 class RegisterCase(unittest.TestCase):
     """register() must declare exactly what plugin.yaml promises."""
+
+    def setUp(self) -> None:
+        fusen_i18n.set_language("en")
+
+    def tearDown(self) -> None:
+        fusen_i18n.set_language(None)
 
     def test_register_wires_tools_hooks_and_commands(self) -> None:
         ctx = _FakeContext()
@@ -404,7 +485,24 @@ class RegisterCase(unittest.TestCase):
 
         self.assertEqual(sorted(ctx.tools), ["fusen_notes", "fusen_pin", "fusen_write"])
         self.assertEqual(sorted(ctx.hooks), ["on_session_delete", "post_compaction", "pre_llm_call"])
-        self.assertEqual(sorted(ctx.commands), ["fusen", "fusenedit", "fusenundo", "unfusen"])
+        self.assertEqual(
+            sorted(ctx.commands),
+            ["fusen", "fusenapply", "fusendismiss", "fusenedit", "fusenundo", "unfusen"],
+        )
+
+    def test_command_help_is_english_by_default(self) -> None:
+        ctx = _FakeContext()
+        sys.modules["fusen"].register(ctx)
+        self.assertIn("Pin a note", ctx.command_text["fusen"]["description"])
+        self.assertEqual(ctx.command_text["fusenedit"]["args_hint"], "<new body>")
+        self.assertIn("Apply", ctx.command_text["fusenapply"]["description"])
+
+    def test_command_help_is_japanese_when_hermes_is_japanese(self) -> None:
+        fusen_i18n.set_language("ja")
+        ctx = _FakeContext()
+        sys.modules["fusen"].register(ctx)
+        self.assertIn("付箋", ctx.command_text["fusen"]["description"])
+        self.assertEqual(ctx.command_text["fusenedit"]["args_hint"], "本文")
 
         manifest = (ROOT / "plugin.yaml").read_text(encoding="utf-8")
         for name in ctx.tools:
@@ -531,6 +629,7 @@ class _FakeContext:
         self.tools: dict[str, dict] = {}
         self.hooks: dict[str, object] = {}
         self.commands: dict[str, object] = {}
+        self.command_text: dict[str, dict[str, str]] = {}
 
     def dispatch_tool(self, name: str, args: dict, **_: object) -> str:
         self.calls.append((name, args))
@@ -543,8 +642,12 @@ class _FakeContext:
     def register_hook(self, name: str, callback: object) -> None:
         self.hooks[name] = callback
 
-    def register_command(self, name: str, handler: object, **_: object) -> None:
+    def register_command(self, name: str, handler: object, **kwargs: object) -> None:
         self.commands[name] = handler
+        self.command_text[name] = {
+            "description": str(kwargs.get("description") or ""),
+            "args_hint": str(kwargs.get("args_hint") or ""),
+        }
 
 
 if __name__ == "__main__":

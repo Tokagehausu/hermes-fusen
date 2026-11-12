@@ -37,9 +37,10 @@ MAX_NAME = 40
 MAX_BODY = 4000
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    # Hermes may rewrite a note body directly when this is on. Off = Hermes can
-    # only file a proposal, and the user confirms it.
-    "auto_edit": True,
+    # Off (default): Hermes can only file a proposal, and the user confirms it in
+    # the Desktop panel or with /fusenapply. On: Hermes rewrites bodies directly.
+    # Opt-in, because a note reaches every conversation it is pinned to.
+    "auto_edit": False,
     # auto: inject on the first turn, after a change, and after compaction.
     # always: every turn (breaks prefix caching on purpose). off: never.
     "inject": "auto",
@@ -86,8 +87,16 @@ def data_dir() -> Path:
 
         return Path(plugin_data_dir(PLUGIN_ID))
     except Exception:
-        home = os.environ.get("HERMES_HOME") or os.path.join(os.path.expanduser("~"), ".hermes")
-        path = Path(home) / "plugins-data" / PLUGIN_ID
+        # The dashboard loads this file outside the host's package tree, so mirror the
+        # helper: the home comes from hermes_constants (context override → HERMES_HOME →
+        # platform default), and the directory is ``plugin-data``, as documented.
+        try:
+            from hermes_constants import get_hermes_home
+
+            home = Path(get_hermes_home())
+        except Exception:
+            home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+        path = home / "plugin-data" / PLUGIN_ID
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -494,8 +503,8 @@ def delete(state: dict[str, Any], note_id_: str) -> None:
     state["pending"] = [entry for entry in state.get("pending") or () if entry["note_id"] != note["id"]]
 
 
-def revert(state: dict[str, Any], note_id_: str, rev: Optional[int] = None) -> dict[str, Any]:
-    """Roll a note back to a stored revision (default: the one before current)."""
+def revert_target(state: dict[str, Any], note_id_: str, rev: Optional[int] = None) -> dict[str, Any]:
+    """The stored revision a revert would restore (default: the one before current)."""
     note = state["notes"].get(note_id(note_id_))
     if not note:
         raise FusenError("note not found")
@@ -503,12 +512,17 @@ def revert(state: dict[str, Any], note_id_: str, rev: Optional[int] = None) -> d
     if not history:
         raise FusenError("no earlier revision to restore")
     if rev is None:
-        target = history[-1]
-    else:
-        match = [entry for entry in history if entry["rev"] == int(rev)]
-        if not match:
-            raise FusenError(f"revision {rev} is not in history")
-        target = match[-1]
+        return history[-1]
+    match = [entry for entry in history if entry["rev"] == int(rev)]
+    if not match:
+        raise FusenError(f"revision {rev} is not in history")
+    return match[-1]
+
+
+def revert(state: dict[str, Any], note_id_: str, rev: Optional[int] = None) -> dict[str, Any]:
+    """Roll a note back to a stored revision (default: the one before current)."""
+    target = revert_target(state, note_id_, rev)
+    note = state["notes"][note_id(note_id_)]
     depth = state["settings"]["history_depth"]
     _push_history(note, note["body"], note["author"], depth)
     note["body"] = target["body"]
@@ -695,10 +709,3 @@ def render(state: dict[str, Any], sid: str) -> str:
 def _escape(value: str) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
-
-def summarize(state: dict[str, Any], sid: str) -> str:
-    """One line for a slash command / status bar."""
-    notes = notes_for(state, sid)
-    if not notes:
-        return "この会話に付箋はありません。"
-    return " / ".join(f'{note["id"]}「{note["name"]}」(rev {note["rev"]})' for note in notes)
